@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NumberField, SelectField, Check, Segmented, Modal } from 'engineering-ui';
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Trash2, Wand2 } from 'lucide-react';
 import { CATEGORIES, sectionsOf, type SectionCategory } from '../data/sections';
 import { defaultGrade, gradesFor } from '../data/grades';
 import { sectionProps } from '../design/section';
@@ -37,7 +38,14 @@ const Readout: React.FC<{ label: React.ReactNode; value: React.ReactNode; title?
   </div>
 );
 
-export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }> = ({ input, set, model }) => {
+export const InputPanels: React.FC<{
+  input: BridgeInput;
+  set: Set;
+  model: BridgeModel;
+  onOptimise: () => void;
+  optimiseLog: string[] | null;
+  solving: boolean;
+}> = ({ input, set, model, onOptimise, optimiseLog, solving }) => {
   const { geo } = model;
   const n = panelCount(input);
   return (
@@ -63,11 +71,6 @@ export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: Bridge
             ]}
           />
         </div>
-        {input.trussType === 'warren' && (
-          <Check checked={input.warrenVerticals} onChange={(v) => set('warrenVerticals', v)} title="Without verticals the top chord has nodes at mid-panel, the end posts are raking and the U-frames are formed by the diagonals.">
-            Verticals at Every Panel Point
-          </Check>
-        )}
         <div className="grid grid-cols-2 gap-2 items-end">
           <NumberField label="Panel Length Target (m)" value={input.panelTarget} onChange={(v) => set('panelTarget', v)} min={1} max={6} step={0.1} decimals={2} title="The number of panels is the nearest even number to span / target" />
           <div className="space-y-1 pb-1">
@@ -82,7 +85,7 @@ export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: Bridge
         <Readout label="Chord Width" value={`${(geo.chordWidth * 1000).toFixed(0)} mm`} title="Horizontal width of the wider chord" />
         <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail width + chord width" />
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Cross Girder Drop (mm)" value={input.cgTopOffset} onChange={(v) => set('cgTopOffset', v)} min={0} max={600} step={5} title="Top of the cross girders below the top of the bottom chord. The cross girders are connected to the bottom chord nodes by rigid links." />
+          <NumberField label="Cross Girder Level (mm)" value={input.cgLevel} onChange={(v) => set('cgLevel', v)} min={-600} max={600} step={5} title="Top of the cross girders relative to the top of the bottom chord: positive raises them, negative drops them. Offset cross girders are connected to the bottom chord nodes by rigid links." />
           <SelectField
             label="Plan Bracing"
             value={input.bracing}
@@ -114,6 +117,8 @@ export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: Bridge
               set('deckType', v as DeckType);
               set('deckThickness', d.thickness);
               set('deckDensity', d.density);
+              // grating and boards span across between stringers
+              if (v === 'frp' || v === 'timber') set('stringers', true);
             }}
             options={(Object.keys(DECK_INFO) as DeckType[]).map((k) => ({ value: k, label: DECK_INFO[k].label }))}
           />
@@ -125,14 +130,39 @@ export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: Bridge
             <Readout label="Deck Weight" value={`${((input.deckThickness / 1000) * input.deckDensity).toFixed(2)} kPa`} />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Surfacing (kPa)" value={input.surfacing} onChange={(v) => set('surfacing', v)} min={0} max={5} step={0.05} decimals={2} />
-          <NumberField label="Services (kN/m)" value={input.services} onChange={(v) => set('services', v)} min={0} max={10} step={0.1} decimals={2} title="Total for the bridge, shared equally by the bottom chords" />
+        <Check checked={input.stringers} onChange={(v) => set('stringers', v)} title="Longitudinal stringers simply supported on the cross girders, carrying the deck and pedestrian load. They take no axial force from the chords.">
+          Stringers
+        </Check>
+        {input.stringers && (
+          <div className="nested">
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField label="Number" value={input.stringerCount} onChange={(v) => set('stringerCount', Math.round(v))} min={1} max={12} step={1} />
+              <NumberField label="Spacing (m)" value={input.stringerSpacing} onChange={(v) => set('stringerSpacing', v)} min={0.2} max={3} step={0.05} decimals={2} />
+            </div>
+            <Readout label="Outer Stringers (Centres)" value={`±${(((Math.max(1, Math.round(input.stringerCount)) - 1) * input.stringerSpacing) / 2).toFixed(3)} m`} title="From the bridge centreline" />
+          </div>
+        )}
+        <NumberField label="Services (kN/m)" value={input.services} onChange={(v) => set('services', v)} min={0} max={10} step={0.1} decimals={2} title="Total for the bridge, shared equally by the bottom chords" />
+        <div>
+          <label className="label">Handrails (Each Side)</label>
+          <Segmented<'1' | '2'>
+            value={String(input.handrails) as '1' | '2'}
+            onChange={(v) => set('handrails', v === '2' ? 2 : 1)}
+            options={[
+              { value: '1', label: 'One' },
+              { value: '2', label: 'Two' }
+            ]}
+          />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Handrail Height (m)" value={input.handrailHeight} onChange={(v) => set('handrailHeight', v)} min={0.8} max={1.6} step={0.05} decimals={2} title="Above the deck" />
-          <NumberField label="Handrail Weight (kN/m)" value={input.handrailLoad} onChange={(v) => set('handrailLoad', v)} min={0} max={2} step={0.05} decimals={2} title="Per side" />
+          <NumberField label={input.handrails === 2 ? 'Lower Rail Height (m)' : 'Handrail Height (m)'} value={input.handrailHeight1} onChange={(v) => set('handrailHeight1', v)} min={0.5} max={1.8} step={0.05} decimals={2} title="Above the deck" />
+          {input.handrails === 2 ? (
+            <NumberField label="Upper Rail Height (m)" value={input.handrailHeight2} onChange={(v) => set('handrailHeight2', v)} min={0.5} max={1.8} step={0.05} decimals={2} title="Above the deck" />
+          ) : (
+            <NumberField label="Upper Rail Height (m)" value={undefined} onChange={() => {}} disabled disabledText="–" />
+          )}
         </div>
+        <NumberField label="Handrail Weight (kN/m per Rail)" value={input.handrailLoad} onChange={(v) => set('handrailLoad', v)} min={0} max={2} step={0.05} decimals={2} />
         <Check checked={input.screens} onChange={(v) => set('screens', v)}>
           Mesh Screens
         </Check>
@@ -151,10 +181,36 @@ export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: Bridge
       {/* ---------------------------------------------------------------- sections */}
       <section className="panel">
         <h2 className="panel-title" title="Section depth direction: the direction of the section depth (d) in the bridge.">Sections</h2>
-        {GROUPS.map((g, i) => (
-          <SectionRow key={g} group={g} input={input} set={set} first={i === 0} />
-        ))}
+        {GROUPS.filter((g) => g !== 'vertical' || input.trussType !== 'warren')
+          .filter((g) => g !== 'stringer' || input.stringers)
+          .map((g, i) =>
+            g === 'endPost' ? (
+              <div key={g} className="section !space-y-1">
+                <h3 className="card-title">{GROUP_INFO[g].label}</h3>
+                <Readout label="Raking End Posts" value="As Top Chord" />
+              </div>
+            ) : (
+              <SectionRow key={g} group={g} input={input} set={set} first={i === 0} />
+            )
+          )}
         <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
+        <button
+          type="button"
+          className="btn w-full"
+          onClick={onOptimise}
+          disabled={solving}
+          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most 90% (and the chords stiff enough for the deflection limit), in up to four analysis iterations. The model is then solved."
+        >
+          <Wand2 className="w-3.5 h-3.5" />
+          Optimise Sections (90% Target)
+        </button>
+        {optimiseLog && (
+          <Readout
+            label="Last Optimisation"
+            value={`${optimiseLog.filter((l) => l.includes('→')).length} changes`}
+            title={optimiseLog.join('\n')}
+          />
+        )}
       </section>
 
       {/* ---------------------------------------------------------------- loads */}
@@ -234,9 +290,6 @@ const LoadsPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) 
         <NumberField label="Pedestrian Load (kPa)" value={input.pedestrian} onChange={(v) => set('pedestrian', v)} min={0} max={20} step={0.5} decimals={1} title="On the clear width" />
         <NumberField label="Connections (% of Steel)" value={input.connectionAllowance} onChange={(v) => set('connectionAllowance', v)} min={0} max={30} step={1} />
       </div>
-      <Check checked={input.patterns} onChange={(v) => set('patterns', v)} title="Each ULS combination with pedestrian load is also run with the load on the left half and on the right half of the span.">
-        Pattern Pedestrian Loading (Half Span)
-      </Check>
       <div className="section">
         <div className="grid grid-cols-2 gap-2">
           <NumberField label={<>ULS Wind Speed <S s="V" sub="u" /> (m/s)</>} value={input.windUls} onChange={(v) => set('windUls', v)} min={0} max={90} step={1} />
@@ -278,7 +331,8 @@ const CombosDialog: React.FC<{ combos: Combination[]; onChange: (c: Combination[
       }}
     />
   );
-  return (
+  // rendered on the document body, above the sticky input column and the 3D view
+  return createPortal(
     <Modal title="Load Combinations" onClose={onClose} variant="page">
       <div className="panel">
         <div className="overflow-x-auto">
@@ -348,7 +402,8 @@ const CombosDialog: React.FC<{ combos: Combination[]; onChange: (c: Combination[
           </div>
         </div>
       </div>
-    </Modal>
+    </Modal>,
+    document.body
   );
 };
 
@@ -375,7 +430,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set })
       }}
     />
   );
-  const rows = useMemo(() => GROUPS, []);
+  const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'stringer' || input.stringers)), [input.trussType, input.stringers]);
   return (
     <section className="panel">
       <h2 className="panel-title" title="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">

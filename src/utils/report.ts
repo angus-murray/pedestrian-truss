@@ -7,7 +7,7 @@
 import { jsPDF } from 'jspdf';
 import type { BridgeInput } from '../model/types';
 import { DECK_INFO, GROUP_INFO, GROUPS } from '../model/types';
-import type { BridgeModel } from '../model/build';
+import { effectiveSections, type BridgeModel } from '../model/build';
 import { comboLabel, windPressure, type AnalysisResults } from '../model/analysis';
 import { summarise } from '../components/Results';
 import type { ViewCapture } from '../components/viewer/Viewer3D';
@@ -307,18 +307,19 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   heading(`${sec++}   Geometry and Deck`);
   pairs([
     ['Span L', `${f2(input.span)} m`],
-    ['Truss type', `${input.trussType[0].toUpperCase()}${input.trussType.slice(1)}${input.trussType === 'warren' ? (input.warrenVerticals ? ' with verticals' : ' without verticals') : ''}`],
+    ['Truss type', `${input.trussType[0].toUpperCase()}${input.trussType.slice(1)}`],
     ['Panels', `${geo.n} at ${geo.a.toFixed(3)} m`],
     ['Truss depth h (centroids)', `${f2(input.depth)} m`],
     ['Clear width', `${f2(input.clearWidth)} m`],
     ['Handrail width', `${f0(input.handrailWidth)} mm`],
     ['Chord width', `${f0(geo.chordWidth * 1000)} mm`],
     ['Truss spacing s', `${geo.s.toFixed(3)} m`],
-    ['Cross girder drop', `${f0(input.cgTopOffset)} mm`],
+    ['Cross girder top above chord top', `${f0(input.cgLevel)} mm`],
     ['Plan bracing', input.bracing === 'x' ? 'X-bracing' : input.bracing === 'single' ? 'Single diagonals' : 'None'],
     ['Deck', `${DECK_INFO[input.deckType].label}, ${f0(input.deckThickness)} mm`],
     ['Screens', input.screens ? `${f2(input.screenHeight)} m above deck` : 'None'],
-    ['Handrail height', `${f2(input.handrailHeight)} m`],
+    ['Handrails', geo.handrailHeights.map((h) => `${f2(h)} m`).join(' and ') + ' above deck'],
+    ['Stringers', input.stringers ? `${geo.stringerYs.length} at ${f2(input.stringerSpacing)} m` : 'None'],
     ['Diagonal ends', input.webPinned ? 'Pinned' : 'Rigid']
   ]);
 
@@ -327,9 +328,9 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     [22, 30, 22, 22, 18, 14, 16],
     [
       { cells: ['Group', 'Section', 'Grade', 'Depth direction', 'A_g (mm²)', 'f_y (MPa)', 'Mass (kg/m)'], kind: 'head' },
-      ...GROUPS.map((g) => {
+      ...GROUPS.filter((g) => model.members.some((x) => x.group === g)).map((g) => {
         const m = model.members.find((x) => x.group === g);
-        const s = input.sections[g];
+        const s = effectiveSections(input)[g];
         return {
           cells: [
             GROUP_INFO[g].label,
@@ -350,11 +351,10 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   pairs([
     ['G1 steel (incl. connections)', `+${f0(input.connectionAllowance)}%`],
     ['G1 deck', `${f2((input.deckThickness / 1000) * input.deckDensity)} kPa`],
-    ['G2 surfacing', `${f2(input.surfacing)} kPa`],
     ['G2 screens', input.screens ? `${f2(input.screenLoad)} kPa` : '—'],
-    ['G2 handrails', `${f2(input.handrailLoad)} kN/m per side`],
+    ['G2 handrails', `${f2(input.handrailLoad)} kN/m per rail`],
     ['G2 services', `${f2(input.services)} kN/m`],
-    ['Pedestrian Q', `${f2(input.pedestrian)} kPa${input.patterns ? ', full and half span' : ''}`],
+    ['Pedestrian Q', `${f2(input.pedestrian)} kPa`],
     ['Wind V_u / V_s', `${f0(input.windUls)} / ${f0(input.windSls)} m/s (${f2(windPressure(input.windUls))} / ${f2(windPressure(input.windSls))} kPa)`],
     ['C_d / C_L', `${f2(input.dragCoeff)} / ${f2(input.liftCoeff)}`],
     ['Barrier load B', `${f2(input.barrier)} kN/m`],

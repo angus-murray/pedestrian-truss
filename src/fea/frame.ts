@@ -30,6 +30,8 @@ export interface FEElement {
   /** Bending (ry, rz) released at end i / end j. */
   relI?: boolean;
   relJ?: boolean;
+  /** Axial force released at end j (a sliding end). */
+  relAxialJ?: boolean;
 }
 
 /** Uniform load on an element, global components (kN/m). */
@@ -114,7 +116,7 @@ export function localGeometric(e: FEElement, L: number, N: number): Float64Array
 }
 
 /** Released local DOFs of an element. */
-const releasedDofs = (e: FEElement) => [...(e.relI ? [4, 5] : []), ...(e.relJ ? [10, 11] : [])];
+const releasedDofs = (e: FEElement) => [...(e.relI ? [4, 5] : []), ...(e.relAxialJ ? [6] : []), ...(e.relJ ? [10, 11] : [])];
 
 /** Solves a small dense system in place (Gaussian elimination with partial pivoting). */
 function solveDense(A: number[][], B: number[][]): number[][] {

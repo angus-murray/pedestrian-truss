@@ -5,7 +5,7 @@
  */
 import { FrameSolver, type Vec3 } from '../fea/frame';
 import { lanczos } from '../fea/eigen';
-import { buildModel, CASES, type BridgeModel, type CaseKey, type Member } from './build';
+import { buildModel, CASES, effectiveSections, type BridgeModel, type CaseKey, type Member } from './build';
 import type { BridgeInput, GroupKey } from './types';
 import { alphaM, compressionFromNom, majorBending, tensionCapacity, E_STEEL, type CompressionCapacity } from '../design/capacity';
 import { PHI } from '../design/section';
@@ -13,7 +13,6 @@ import { PHI } from '../design/section';
 export interface ComboDef {
   name: string;
   type: 'ULS' | 'SLS';
-  pattern: 'Full' | 'Left Half' | 'Right Half' | null;
   factors: Record<CaseKey, number>;
   deflection: boolean;
   /** Wind pressure (kPa) used for the W factor. */
@@ -23,21 +22,13 @@ export interface ComboDef {
 export const windPressure = (V: number) => (0.6 * V * V) / 1000; // kPa, ρ = 1.2 kg/m³
 
 export function expandCombos(input: BridgeInput): ComboDef[] {
-  const out: ComboDef[] = [];
-  for (const c of input.combos) {
+  return input.combos.map((c) => {
     const windQ = windPressure(c.type === 'ULS' ? input.windUls : input.windSls);
-    const base: Record<CaseKey, number> = { G1s: c.g1s, G1d: c.g1d, G2: c.g2, Q: 0, QL: 0, QR: 0, W: c.w * windQ, B: c.b };
-    const name = `${c.type} ${c.name}`;
-    if (c.q !== 0 && input.patterns && !c.deflection) {
-      out.push({ name, type: c.type, pattern: 'Full', factors: { ...base, Q: c.q }, deflection: c.deflection, windQ });
-      out.push({ name, type: c.type, pattern: 'Left Half', factors: { ...base, QL: c.q }, deflection: c.deflection, windQ });
-      out.push({ name, type: c.type, pattern: 'Right Half', factors: { ...base, QR: c.q }, deflection: c.deflection, windQ });
-    } else out.push({ name, type: c.type, pattern: c.q !== 0 && input.patterns ? 'Full' : null, factors: { ...base, Q: c.q }, deflection: c.deflection, windQ });
-  }
-  return out;
+    return { name: `${c.type} ${c.name}`, type: c.type, factors: { G1s: c.g1s, G1d: c.g1d, G2: c.g2, Q: c.q, W: c.w * windQ, B: c.b }, deflection: c.deflection, windQ };
+  });
 }
 
-export const comboLabel = (c: ComboDef) => (c.pattern && c.pattern !== 'Full' ? `${c.name} (${c.pattern})` : c.name);
+export const comboLabel = (c: ComboDef) => c.name;
 
 /** Internal actions at the stations of a member: N, Vy, Vz, T, My (major), Mz (minor) per station. */
 export type StationForces = Float32Array; // stations × 6
@@ -55,7 +46,7 @@ export interface BucklingResult {
 export interface ModalResult {
   freqs: number[];
   modes: Float32Array[];
-  kinds: ('Vertical' | 'Torsional' | 'Lateral' | 'Longitudinal')[];
+  kinds: ('Vertical' | 'Torsional' | 'Lateral' | 'Longitudinal' | 'Stringers (Local)')[];
   massRatio: number[]; // share of the mass moving in the dominant direction
 }
 
@@ -234,13 +225,15 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   combos.forEach((c, ci) => {
     if (c.type !== 'ULS') return;
     progress(`Buckling analysis: ${comboLabel(c)}`);
-    const B = solver.negGeometric(axial[ci]);
+    // rigid links (offsets to the cross girders and stringer seats) are modelling devices: no geometric stiffness
+    const Nb = axial[ci].map((v, e) => (model.elMember[e] < 0 ? 0 : v));
+    const B = solver.negGeometric(Nb);
     const r = lanczos(solver.K, Kmul, (x, y) => void B.multiply(x, y), nModes, { start });
     start = r.vectors[0];
     const modes: Float32Array[] = [];
     const participation: Float32Array[] = [];
     r.vectors.forEach((v) => {
-      const { full, en } = memberEnergy(v, axial[ci]);
+      const { full, en } = memberEnergy(v, Nb);
       let mx = 0;
       for (let i = 0; i < full.length; i += 1) if (i % 6 < 3) mx = Math.max(mx, Math.abs(full[i]));
       modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
@@ -254,24 +247,30 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   // ---------------------------------------------------------- natural frequencies
   progress('Natural frequencies');
   const M = solver.massMatrix(model.nodeMass);
-  const mr = lanczos(solver.K, Kmul, (x, y) => void M.multiply(x, y), 6);
+  const mr = lanczos(solver.K, Kmul, (x, y) => void M.multiply(x, y), model.geo.stringerYs.length ? 12 : 6);
+  // nodes that belong only to stringers: modes with most of their kinetic energy there are local stringer modes
+  const stringerNode = new Uint8Array(model.fe.nodes.length);
+  for (const m of model.members) if (m.group === 'stringer') for (const nd of m.nodes) stringerNode[nd] = 1;
+  for (const m of model.members) if (m.group !== 'stringer') for (const nd of m.nodes) stringerNode[nd] = 0;
   const modal: ModalResult = { freqs: [], modes: [], kinds: [], massRatio: [] };
   const sideOf = model.fe.nodes.map((nd) => (nd.y < -1e-6 ? -1 : nd.y > 1e-6 ? 1 : 0));
   mr.values.forEach((lam, k) => {
     const full = solver.expand(mr.vectors[k]);
-    let ex = 0, ey = 0, ez = 0, mx = 0, corr = 0, za = 0, zb = 0;
+    let ex = 0, ey = 0, ez = 0, mx = 0, corr = 0, za = 0, zb = 0, est = 0;
     model.nodeMass.forEach((m, nd) => {
       const ux = full[nd * 6], uy = full[nd * 6 + 1], uz = full[nd * 6 + 2];
       ex += m * ux * ux;
       ey += m * uy * uy;
       ez += m * uz * uz;
+      if (stringerNode[nd]) est += m * (ux * ux + uy * uy + uz * uz);
       if (sideOf[nd] < 0) za += m * uz;
       if (sideOf[nd] > 0) zb += m * uz;
       mx = Math.max(mx, Math.abs(ux), Math.abs(uy), Math.abs(uz));
     });
     corr = za * zb;
     const tot = ex + ey + ez || 1;
-    const kind = ez >= ey && ez >= ex ? (corr < 0 ? 'Torsional' : 'Vertical') : ey >= ex ? 'Lateral' : 'Longitudinal';
+    const kind =
+      est > 0.5 * tot ? 'Stringers (Local)' : ez >= ey && ez >= ex ? (corr < 0 ? 'Torsional' : 'Vertical') : ey >= ex ? 'Lateral' : 'Longitudinal';
     modal.freqs.push(Math.sqrt(lam) / (2 * Math.PI));
     modal.modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
     modal.kinds.push(kind);
@@ -324,11 +323,13 @@ function interp(m: Member, sf: StationForces, d: number, f: number) {
 /** U-frame flexibility δ (m/kN) and effective length of the top chord between U-frames (Engesser). */
 export function uFrameLength(model: BridgeModel): { le: number; delta: number; d1: number; d2: number; I1: number; I2: number; Ic: number } {
   const { geo, input } = model;
-  const vert = model.members.find((m) => m.group === 'vertical') ?? model.members.find((m) => m.group === 'endPost')!;
+  // U-frame web member: the verticals, or the diagonals of a Warren truss
+  const vert = model.members.find((m) => m.group === 'vertical') ?? model.members.find((m) => m.group === 'diagonal') ?? model.members.find((m) => m.group === 'endPost')!;
+  const secs = effectiveSections(input);
   const cg = model.members.find((m) => m.group === 'crossGirder')!;
   const tc = model.members.find((m) => m.group === 'topChord')!;
   const E = E_STEEL * 1000; // kPa
-  const I1 = (input.sections[vert.group].rotate ? vert.sp.Iy : vert.sp.Ix) * 1e-12;
+  const I1 = (secs[vert.group].rotate ? vert.sp.Iy : vert.sp.Ix) * 1e-12;
   const I2 = (input.sections.crossGirder.rotate ? cg.sp.Iy : cg.sp.Ix) * 1e-12;
   const Ic = (input.sections.topChord.rotate ? tc.sp.Ix : tc.sp.Iy) * 1e-12;
   const d1 = geo.H - geo.cgTop, d2 = geo.H - geo.zCG;
@@ -337,14 +338,19 @@ export function uFrameLength(model: BridgeModel): { le: number; delta: number; d
   return { le, delta, d1, d2, I1, I2, Ic };
 }
 
-function designMember(
+/**
+ * Design checks of a member for every ULS combination. nomScale multiplies the elastic buckling load from the
+ * buckling analysis (used by the section optimiser to estimate the effect of a change of section).
+ */
+export function designMember(
   model: BridgeModel,
   m: Member,
   combos: ComboDef[],
   forces: StationForces[][],
   axial: Float64Array[],
   buckling: BucklingResult[],
-  input: BridgeInput
+  input: BridgeInput,
+  nomScale = 1
 ): MemberDesign {
   const sp = m.sp;
   const set = input.design[m.group as GroupKey];
@@ -384,7 +390,7 @@ function designMember(
           if (k < 0) k = b.values.length - 1;
           mode = k + 1;
           lambdaCr = b.values[k];
-          const Nom = lambdaCr * Math.abs(N);
+          const Nom = lambdaCr * Math.abs(N) * nomScale;
           comp = compressionFromNom(sp, Nom, Math.min(rx, ry));
           NomMajor = NomMinor = Nom;
           leMajor = Math.PI * Math.sqrt((E_STEEL * sp.Ix) / (Nom * 1000)) / 1000;
@@ -393,7 +399,7 @@ function designMember(
       } else {
         const lat = m.group === 'topChord' && uf;
         // the out-of-plane (lateral) axis of a chord is the minor axis unless the chord is rotated
-        const rot = input.sections[m.group].rotate;
+        const rot = effectiveSections(input)[m.group].rotate;
         if (lat) {
           leMethod = 'U-Frame';
           const inPlane = set.kMajor * L;

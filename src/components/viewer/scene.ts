@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { BridgeModel } from '../../model/build';
 import type { Finish } from '../../model/types';
-import { boxBetween, chequerTexture, chordExtents, extrudeSection, memberCuts, meshTexture, rod, speckleTexture, timberTexture } from './geometry';
+import { boxBetween, chequerTexture, chordExtents, extrudeSection, gratingTexture, memberCuts, meshTexture, rod, speckleTexture, timberTexture, webHalfWidth } from './geometry';
 import { roundedRect } from '../../design/section';
 
 export const FINISH: Record<Finish, { colour: string; metalness: number; roughness: number; label: string }> = {
@@ -51,21 +51,28 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   // ------------------------------------------------------------ structural members
   for (const m of model.members) {
     const [cutA, cutB] = memberCuts(model, m);
-    const [a, b] = m.group === 'topChord' || m.group === 'bottomChord' ? chordExtents(model, m) : [m.a, m.b];
+    let [a, b] = m.group === 'topChord' || m.group === 'bottomChord' ? chordExtents(model, m) : [m.a, m.b];
+    // stringers are analysed on the cross girder axis and drawn seated on the cross girders
+    if (m.group === 'stringer') {
+      const dz = geo.zST - geo.zCG;
+      a = [a[0], a[1], a[2] + dz];
+      b = [b[0], b[1], b[2] + dz];
+    }
     const g = extrudeSection(m.sp.outer, m.sp.holes, a, b, m.depthDir, cutA, cutB);
     const mesh = add(membersGroup, g, steel);
     mesh.userData.memberId = m.id;
     members.set(m.id, mesh);
   }
 
-  // cross girder end plates against the chords, and bearing stiffeners
+  // cross girder end plates at the chord or web member faces
   const cg = model.members.find((m) => m.group === 'crossGirder')!;
   const cgW = (input.sections.crossGirder.rotate ? cg.sp.d : cg.sp.b) / 1000;
-  const cgUnder = geo.cgTop <= -geo.dBC / 2 + 1e-6;
-  if (!cgUnder)
+  const [cgCut] = memberCuts(model, cg);
+  const yPlate = Math.abs(cgCut?.p[1] ?? geo.s / 2 - geo.wBC / 2);
+  if (geo.cgTop > -geo.dBC / 2 + 1e-6)
     for (let k = 0; k <= geo.n; k++)
       for (const sg of [-1, 1]) {
-        const y = sg * (geo.s / 2 - geo.wBC / 2);
+        const y = sg * yPlate;
         add(membersGroup, boxBetween(k * geo.a - cgW / 2 - 0.01, k * geo.a + cgW / 2 + 0.01, y - sg * 0.016, y, geo.zCG - geo.dCG / 2 - 0.01, geo.cgTop), steel);
       }
 
@@ -83,35 +90,41 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   const deckX0 = -0.02, deckX1 = geo.L + 0.02;
   const yIn = geo.deckWidth / 2 - 0.005;
   const deckT = input.deckThickness / 1000;
-  const z0 = geo.cgTop, z1 = geo.deckTop;
+  const z0 = geo.deckSoffit, z1 = geo.deckTop;
   const repeatFor = (t: THREE.Texture, sx: number, sy: number) => {
     t.repeat.set(sx, sy);
     return t;
   };
   if (input.deckType === 'concrete') {
     const tex = keep(repeatFor(speckleTexture('#bdb8ae', ['#7d786f', '#e5e1d8', '#9a958c']), geo.L / 2, geo.deckWidth / 2));
-    const surf = input.surfacing > 0 ? keep(repeatFor(speckleTexture('#5d5f61', ['#2f3133', '#8d9093', '#c9a96e'], 0.12), geo.L / 1.5, geo.deckWidth / 1.5)) : tex;
-    const mats = [
-      keep(new THREE.MeshStandardMaterial({ color: '#c4bfb5', map: tex, roughness: 0.92 })),
-      keep(new THREE.MeshStandardMaterial({ color: '#ffffff', map: surf, roughness: 0.95 }))
-    ];
-    const g = boxBetween(deckX0, deckX1, -yIn, yIn, z0, z1);
-    // top face (+z) uses the surfacing material
-    g.clearGroups();
-    const idx = g.index!.count;
-    g.addGroup(0, 24, 0);
-    g.addGroup(24, 6, 1);
-    g.addGroup(30, idx - 30, 0);
-    add(furniture, g, mats as unknown as THREE.Material);
+    const mat = keep(new THREE.MeshStandardMaterial({ color: '#c4bfb5', map: tex, roughness: 0.92 }));
+    add(furniture, boxBetween(deckX0, deckX1, -yIn, yIn, z0, z1), mat);
   } else if (input.deckType === 'precast') {
     const tex = keep(repeatFor(speckleTexture('#c9c4ba', ['#7d786f', '#e5e1d8']), 1, geo.deckWidth / 2));
     const mat = keep(new THREE.MeshStandardMaterial({ color: '#d0cbc1', map: tex, roughness: 0.9 }));
     for (let k = 0; k < geo.n; k++) add(furniture, boxBetween(k * geo.a + 0.006, (k + 1) * geo.a - 0.006, -yIn, yIn, z0, z1), mat);
   } else if (input.deckType === 'frp') {
-    const tex = keep(repeatFor(speckleTexture('#6f7c70', ['#3d463e', '#a8b4a6'], 0.2), geo.a, geo.deckWidth));
-    const mat = keep(new THREE.MeshStandardMaterial({ color: '#8b9a8b', map: tex, roughness: 0.85 }));
-    const pw = 0.5;
-    for (let x = 0; x < geo.L - 1e-6; x += pw) add(furniture, boxBetween(x + 0.003, Math.min(geo.L, x + pw) - 0.003, -yIn, yIn, z0, z1), mat);
+    // moulded FRP mini-mesh grating: small square openings at close centres with a gritted top, in panels
+    const pitch = 0.025, tile = 4 * pitch;
+    const top = keep(repeatFor(gratingTexture('#6e747a', '#25282c'), 1 / tile, 1 / tile));
+    const side = keep(repeatFor(gratingTexture('#5d6368', '#2a2d31', true), 1 / tile, 1 / tile));
+    const matTop = keep(new THREE.MeshStandardMaterial({ color: '#ffffff', map: top, roughness: 0.95 }));
+    const matSide = keep(new THREE.MeshStandardMaterial({ color: '#ffffff', map: side, roughness: 0.9 }));
+    const pw = 1.0;
+    for (let x = 0; x < geo.L - 1e-6; x += pw) {
+      const xa = x + 0.004, xb = Math.min(geo.L, x + pw) - 0.004;
+      const g = boxBetween(xa, xb, -yIn, yIn, z0, z1);
+      // texture in metres on every face
+      const pos = g.attributes.position as THREE.BufferAttribute, nor = g.attributes.normal as THREE.BufferAttribute, uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const nz = Math.abs(nor.getZ(i)), ny = Math.abs(nor.getY(i));
+        uv.setXY(i, nz > 0.5 ? pos.getX(i) : ny > 0.5 ? pos.getX(i) : pos.getY(i), nz > 0.5 ? pos.getY(i) : pos.getZ(i));
+      }
+      g.clearGroups();
+      g.addGroup(0, 24, 1);
+      g.addGroup(24, 12, 0);
+      add(furniture, g, [matTop, matSide] as unknown as THREE.Material);
+    }
   } else if (input.deckType === 'timber') {
     const tex = keep(timberTexture());
     tex.repeat.set(geo.a / 1.2, 1);
@@ -131,56 +144,67 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     add(furniture, boxBetween(deckX0, deckX1, y - 0.005, y + 0.005, z1, z1 + 0.1), steel);
   }
 
-  // ------------------------------------------------------------ handrails on brackets at the web members
+  // ------------------------------------------------------------ handrails on brackets from the web members
   const rail = 0.0483 / 2;
-  const zr = geo.deckTop + input.handrailHeight;
-  const posts = model.members.filter((m) => m.group === 'vertical' || m.group === 'endPost');
-  for (const sg of [-1, 1]) {
-    const y = sg * (geo.clearWidth / 2 + rail);
-    const xs = [0, geo.L];
-    add(furniture, rod([xs[0], y, zr], [xs[1], y, zr], rail), steel);
-    const brackets = geo.verticals ? posts.filter((p) => Math.sign(p.a[1]) === sg).map((p) => p.a[0]) : Array.from({ length: geo.n + 1 }, (_, k) => k * geo.a);
-    for (const x of brackets) {
-      const p = posts.find((q) => Math.abs(q.a[0] - x) < 1e-6 && Math.sign(q.a[1]) === sg);
-      const halfY = p ? (Math.abs(p.depthDir[1]) > 0.5 ? p.sp.d : p.sp.b) / 2000 : geo.wBC / 2;
-      const yFace = sg * (geo.s / 2 - halfY);
-      const xb = Math.min(Math.max(x, 0.05), geo.L - 0.05);
-      add(furniture, boxBetween(xb - 0.005, xb + 0.005, Math.min(yFace, y), Math.max(yFace, y), zr - rail - 0.05, zr - rail), steel);
+  const yFaceAbs = geo.s / 2 - webHalfWidth(model);
+  const webs = model.members.filter((m) => m.group === 'vertical' || m.group === 'endPost' || (!geo.verticals && m.group === 'diagonal'));
+  for (const h of geo.handrailHeights) {
+    const zr = geo.deckTop + h;
+    for (const sg of [-1, 1]) {
+      const y = sg * (geo.clearWidth / 2 + rail);
+      // bracket where each web member passes the rail level
+      const xs = webs
+        .filter((m) => Math.sign(m.a[1]) === sg && (m.a[2] - zr) * (m.b[2] - zr) <= 0 && m.a[2] !== m.b[2])
+        .map((m) => m.a[0] + ((zr - m.a[2]) / (m.b[2] - m.a[2])) * (m.b[0] - m.a[0]))
+        .sort((p, q) => p - q);
+      xs.push(0.04, geo.L - 0.04);
+      xs.sort((p, q) => p - q);
+      add(furniture, rod([0, y, zr], [geo.L, y, zr], rail), steel);
+      for (const x of xs) {
+        const yFace = sg * yFaceAbs;
+        add(furniture, boxBetween(x - 0.005, x + 0.005, Math.min(yFace, y), Math.max(yFace, y), zr - rail - 0.05, zr - rail), steel);
+      }
     }
   }
 
-  // ------------------------------------------------------------ screens on the outside face of the trusses
+  // ------------------------------------------------------------ screens on the inside of the trusses, behind the handrails
   if (input.screens) {
     const meshMat = keep(new THREE.MeshStandardMaterial({ map: keep(meshTexture('#2f3438')), transparent: true, depthWrite: false, side: THREE.DoubleSide, metalness: 0.4, roughness: 0.6 }));
     const frameMat = darkSteel;
-    const zb = -geo.dBC / 2, zt = geo.deckTop + input.screenHeight;
-    const above = zt > geo.H + geo.dTC / 2 + 0.02;
-    const xsPost = geo.verticals ? Array.from({ length: geo.n + 1 }, (_, k) => k * geo.a) : Array.from({ length: geo.n + 1 }, (_, k) => k * geo.a);
+    const zb = geo.deckTop + 0.1, zt = geo.deckTop + input.screenHeight;
+    const tcSoffit = geo.H - geo.dTC / 2;
+    const above = zt > tcSoffit + 0.02;
+    // panels between the verticals, or between posts at the bottom chord panel points of a Warren truss
+    const xsPost = Array.from({ length: geo.n + 1 }, (_, k) => k * geo.a);
     for (const sg of [-1, 1]) {
-      const yOut = sg * (geo.s / 2 + geo.chordWidth / 2 + 0.03);
+      const yScr = sg * (yFaceAbs - 0.012);
       for (let k = 0; k < xsPost.length - 1; k++) {
-        const xa = xsPost[k] + 0.04, xb = xsPost[k + 1] - 0.04;
+        const xa = xsPost[k] + (k === 0 ? 0.08 : 0.06), xb = xsPost[k + 1] - (k === xsPost.length - 2 ? 0.08 : 0.06);
         const w = xb - xa, h = zt - zb;
         const plane = new THREE.PlaneGeometry(w, h);
         plane.rotateX(Math.PI / 2);
-        plane.translate((xa + xb) / 2, yOut, (zb + zt) / 2);
+        plane.translate((xa + xb) / 2, yScr, (zb + zt) / 2);
         const uv = plane.attributes.uv as THREE.BufferAttribute;
         for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / 0.2), uv.getY(i) * (h / 0.2));
         add(furniture, plane, meshMat, false);
         // panel frame (flat bars)
-        add(furniture, boxBetween(xa, xb, yOut - 0.003, yOut + 0.003, zt - 0.04, zt), frameMat);
-        add(furniture, boxBetween(xa, xb, yOut - 0.003, yOut + 0.003, zb, zb + 0.04), frameMat);
-        add(furniture, boxBetween(xa - 0.04, xa, yOut - 0.003, yOut + 0.003, zb, zt), frameMat);
-        add(furniture, boxBetween(xb, xb + 0.04, yOut - 0.003, yOut + 0.003, zb, zt), frameMat);
+        add(furniture, boxBetween(xa, xb, yScr - 0.003, yScr + 0.003, zt - 0.04, zt), frameMat);
+        add(furniture, boxBetween(xa, xb, yScr - 0.003, yScr + 0.003, zb, zb + 0.04), frameMat);
+        add(furniture, boxBetween(xa - 0.04, xa, yScr - 0.003, yScr + 0.003, zb, zt), frameMat);
+        add(furniture, boxBetween(xb, xb + 0.04, yScr - 0.003, yScr + 0.003, zb, zt), frameMat);
       }
-      // screen posts above the top chord
-      if (above)
-        for (const x of xsPost) {
-          const post = new THREE.Shape(roundedRect(75, 75, 6).map(([u, v]) => new THREE.Vector2(u / 1000, v / 1000)));
-          const g = new THREE.ExtrudeGeometry(post, { depth: zt - (geo.H - geo.dTC / 2), bevelEnabled: false, curveSegments: 4 });
-          g.translate(x, yOut - sg * 0.045, geo.H - geo.dTC / 2);
-          add(furniture, g, steel);
-        }
+      // screen posts: full height from the deck at the bridge ends and wherever there is no vertical (Warren),
+      // and above the top chord on the verticals when the screen is higher than the chord
+      const post = new THREE.Shape(roundedRect(75, 75, 6).map(([u, v]) => new THREE.Vector2(u / 1000, v / 1000)));
+      for (const x of xsPost) {
+        const end = x < 1e-6 || x > geo.L - 1e-6;
+        const full = end || !geo.verticals;
+        if (!full && !above) continue;
+        const z0p = full ? geo.deckTop : tcSoffit;
+        const g = new THREE.ExtrudeGeometry(post, { depth: zt - z0p, bevelEnabled: false, curveSegments: 4 });
+        g.translate(Math.min(Math.max(x, 0.04), geo.L - 0.04), yScr - sg * 0.045, z0p);
+        add(furniture, g, steel);
+      }
     }
   }
 

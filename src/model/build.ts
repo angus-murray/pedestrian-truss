@@ -13,15 +13,13 @@ import { E_STEEL, G_STEEL } from '../design/capacity';
 import type { FEElement, FENode, FrameModel, LoadCase, Vec3 } from '../fea/frame';
 import type { BridgeInput, GroupKey } from './types';
 
-export type CaseKey = 'G1s' | 'G1d' | 'G2' | 'Q' | 'QL' | 'QR' | 'W' | 'B';
-export const CASES: CaseKey[] = ['G1s', 'G1d', 'G2', 'Q', 'QL', 'QR', 'W', 'B'];
+export type CaseKey = 'G1s' | 'G1d' | 'G2' | 'Q' | 'W' | 'B';
+export const CASES: CaseKey[] = ['G1s', 'G1d', 'G2', 'Q', 'W', 'B'];
 export const CASE_LABELS: Record<CaseKey, string> = {
   G1s: 'G1 Steel Self-Weight',
   G1d: 'G1 Deck',
   G2: 'G2 Superimposed Dead',
-  Q: 'Pedestrian (Full Span)',
-  QL: 'Pedestrian (Left Half)',
-  QR: 'Pedestrian (Right Half)',
+  Q: 'Pedestrian',
   W: 'Wind (per kPa)',
   B: 'Barrier Load'
 };
@@ -60,7 +58,14 @@ export interface Geometry {
   zCG: number; // cross girder centroid
   dCG: number; // cross girder depth (m)
   cgTop: number;
+  /** Stringers: centroid level, depth (m) and positions across the deck. */
+  zST: number;
+  dST: number;
+  stringerYs: number[];
+  deckSoffit: number;
   deckTop: number;
+  /** Handrail heights above the deck (m), lowest first. */
+  handrailHeights: number[];
   deckWidth: number;
   clearWidth: number;
   handrailY: number; // y of the inside face of the handrail (+ side)
@@ -95,8 +100,20 @@ const g = 9.81;
 const hdim = (sp: SectionProps, depthVertical: boolean) => (depthVertical ? sp.b : sp.d) / 1000;
 const vdim = (sp: SectionProps, depthVertical: boolean) => (depthVertical ? sp.d : sp.b) / 1000;
 
+/** Sections of each group as built: the raking end posts take the top chord section. */
+export function effectiveSections(input: BridgeInput): BridgeInput['sections'] {
+  return { ...input.sections, endPost: input.sections.topChord };
+}
+
+/** Stringer positions across the deck (m from the centreline). */
+export function stringerPositions(input: BridgeInput): number[] {
+  if (!input.stringers) return [];
+  const n = Math.max(1, Math.round(input.stringerCount));
+  return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * input.stringerSpacing);
+}
+
 export function panelCount(input: BridgeInput): number {
-  return 2 * Math.max(1, Math.round(input.span / (2 * Math.max(0.5, input.panelTarget))));
+  return 2 * Math.max(2, Math.round(input.span / (2 * Math.max(0.5, input.panelTarget))));
 }
 
 export function buildModel(input: BridgeInput): BridgeModel {
@@ -105,22 +122,27 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const n = panelCount(input);
   const a = L / n;
   const H = input.depth;
-  const sp: Record<GroupKey, SectionProps> = Object.fromEntries(
-    (Object.keys(input.sections) as GroupKey[]).map((k) => [k, sectionProps(input.sections[k])])
-  ) as Record<GroupKey, SectionProps>;
-  const tcVert = !input.sections.topChord.rotate, bcVert = !input.sections.bottomChord.rotate, cgVert = !input.sections.crossGirder.rotate;
+  const secs = effectiveSections(input);
+  const sp: Record<GroupKey, SectionProps> = Object.fromEntries((Object.keys(secs) as GroupKey[]).map((k) => [k, sectionProps(secs[k])])) as Record<GroupKey, SectionProps>;
+  const tcVert = !secs.topChord.rotate, bcVert = !secs.bottomChord.rotate, cgVert = !secs.crossGirder.rotate;
   const wTC = hdim(sp.topChord, tcVert), wBC = hdim(sp.bottomChord, bcVert);
   const dTC = vdim(sp.topChord, tcVert), dBC = vdim(sp.bottomChord, bcVert);
   const chordWidth = Math.max(wTC, wBC);
   const s = input.clearWidth + (2 * input.handrailWidth) / 1000 + chordWidth;
   const dCG = vdim(sp.crossGirder, cgVert);
-  const cgTop = dBC / 2 - input.cgTopOffset / 1000;
+  const cgTop = dBC / 2 + input.cgLevel / 1000;
   let zCG = cgTop - dCG / 2;
   if (Math.abs(zCG) < 0.002) zCG = 0;
+  const stringerYs = stringerPositions(input);
+  const dST = stringerYs.length ? vdim(sp.stringer, !secs.stringer.rotate) : 0;
+  const zST = cgTop + dST / 2;
   const deckT = input.deckThickness / 1000;
-  const deckTop = cgTop + deckT;
+  const deckSoffit = cgTop + dST;
+  const deckTop = deckSoffit + deckT;
   const deckWidth = s - chordWidth;
-  const verticals = input.trussType !== 'warren' || input.warrenVerticals;
+  const verticals = input.trussType !== 'warren';
+  const handrailHeights = (input.handrails === 2 ? [input.handrailHeight1, input.handrailHeight2] : [input.handrailHeight1]).slice().sort((x, y) => x - y);
+  const hrTop = handrailHeights[handrailHeights.length - 1];
   const nSeg = Math.max(2, Math.round(input.elementsPerMember));
 
   // ------------------------------------------------------------ nodes and elements
@@ -149,18 +171,15 @@ export function buildModel(input: BridgeInput): BridgeModel {
     na: number,
     nb: number,
     depthDir: Vec3,
-    opts: { relA?: boolean; relB?: boolean; extra?: number[] } = {}
+    opts: { relA?: boolean; relB?: boolean; axialB?: boolean; extra?: number[] } = {}
   ) => {
     const A = P(na), B = P(nb);
     const length = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
-    const fr = Array.from({ length: nSeg + 1 }, (_, i) => i / nSeg);
-    for (const e of opts.extra ?? []) {
-      if (e <= 0.02 || e >= 0.98) continue;
-      let best = 1;
-      for (let i = 2; i < nSeg; i++) if (Math.abs(fr[i] - e) < Math.abs(fr[best] - e)) best = i;
-      fr[best] = e;
-    }
-    fr.sort((x, y) => x - y);
+    // equal divisions, with extra nodes (handrail level, stringer seats) replacing the nearest division points
+    const extra = (opts.extra ?? []).filter((e) => e > 0.02 && e < 0.98);
+    const tol = 0.35 / nSeg;
+    let fr = Array.from({ length: nSeg + 1 }, (_, i) => i / nSeg).filter((f, i) => i === 0 || i === nSeg || extra.every((e) => Math.abs(e - f) > tol));
+    fr = [...fr, ...extra].sort((x, y) => x - y).filter((f, i, arr) => i === 0 || f - arr[i - 1] > 1e-6);
     const ns = fr.map((f, i) => (i === 0 ? na : i === fr.length - 1 ? nb : node(A[0] + f * (B[0] - A[0]), A[1] + f * (B[1] - A[1]), A[2] + f * (B[2] - A[2]))));
     const id = members.length;
     const s0 = sp[group];
@@ -179,7 +198,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
         J: s0.J * 1e-12,
         ref: depthDir,
         relI: i === 0 && !!opts.relA,
-        relJ: i === ns.length - 2 && !!opts.relB
+        relJ: i === ns.length - 2 && !!opts.relB,
+        relAxialJ: i === ns.length - 2 && !!opts.axialB
       });
     }
     members.push({ id, name, group, side, panel, a: A, b: B, length, depthDir, sp: s0, elements: els, nodes: ns, stations: fr, relA: !!opts.relA, relB: !!opts.relB });
@@ -204,44 +224,43 @@ export function buildModel(input: BridgeInput): BridgeModel {
 
   const bot: number[][] = [[], []]; // [side][k]
   const top: number[][] = [[], []];
-  const topXs: number[] = verticals ? Array.from({ length: n + 1 }, (_, k) => X(k)) : Array.from({ length: n }, (_, k) => X(k + 0.5));
+  // top chord nodes: panel points 1 to n − 1 (Pratt, Howe) or mid-panel (Warren); raking end posts at both ends
+  const topXs: number[] = verticals ? Array.from({ length: n - 1 }, (_, k) => X(k + 1)) : Array.from({ length: n }, (_, k) => X(k + 0.5));
   sides.forEach(([, y], si) => {
     for (let k = 0; k <= n; k++) bot[si][k] = node(X(k), y, 0);
     topXs.forEach((x, k) => (top[si][k] = node(x, y, H)));
   });
 
-  const hrFrac = (deckTop + input.handrailHeight) / H;
+  const hrFrac = (deckTop + hrTop) / H;
   const webRel = input.webPinned;
   sides.forEach(([side, ], si) => {
     // chords
     for (let k = 0; k < n; k++) addMember(`BC${k + 1}${side}`, 'bottomChord', side, k + 1, bot[si][k], bot[si][k + 1], chordDir(!bcVert));
     for (let k = 0; k < topXs.length - 1; k++) addMember(`TC${k + 1}${side}`, 'topChord', side, k + 1, top[si][k], top[si][k + 1], chordDir(!tcVert));
     if (verticals) {
-      // end posts and verticals
-      for (const k of [0, n]) {
-        const A = P(bot[si][k]), B = P(top[si][k]);
-        addMember(`EP${k === 0 ? 'L' : 'R'}${side}`, 'endPost', side, k, bot[si][k], top[si][k], webDir(input.sections.endPost.rotate, A, B), { extra: [hrFrac] });
-      }
+      // Pratt and Howe: raking end posts in the end panels, verticals at panel points 1 to n − 1
+      const T = (k: number) => top[si][k - 1];
+      addMember(`EPL${side}`, 'endPost', side, 1, bot[si][0], T(1), webDir(secs.endPost.rotate, P(bot[si][0]), P(T(1))), { extra: [hrFrac] });
+      addMember(`EPR${side}`, 'endPost', side, n, T(n - 1), bot[si][n], webDir(secs.endPost.rotate, P(T(n - 1)), P(bot[si][n])), { extra: [1 - hrFrac] });
       for (let k = 1; k < n; k++) {
-        const A = P(bot[si][k]), B = P(top[si][k]);
-        addMember(`V${k}${side}`, 'vertical', side, k, bot[si][k], top[si][k], webDir(input.sections.vertical.rotate, A, B), { extra: [hrFrac] });
+        const A = P(bot[si][k]), B = P(T(k));
+        addMember(`V${k}${side}`, 'vertical', side, k, bot[si][k], T(k), webDir(secs.vertical.rotate, A, B), { extra: [hrFrac] });
       }
-      for (let k = 0; k < n; k++) {
+      for (let k = 1; k < n - 1; k++) {
         let na: number, nb: number;
         const left = k < n / 2;
-        if (input.trussType === 'pratt') [na, nb] = left ? [top[si][k], bot[si][k + 1]] : [bot[si][k], top[si][k + 1]];
-        else if (input.trussType === 'howe') [na, nb] = left ? [bot[si][k], top[si][k + 1]] : [top[si][k], bot[si][k + 1]];
-        else [na, nb] = k % 2 === 0 ? [top[si][k], bot[si][k + 1]] : [bot[si][k], top[si][k + 1]];
-        addMember(`D${k + 1}${side}`, 'diagonal', side, k + 1, na, nb, webDir(input.sections.diagonal.rotate, P(na), P(nb)), { relA: webRel, relB: webRel });
+        if (input.trussType === 'pratt') [na, nb] = left ? [T(k), bot[si][k + 1]] : [bot[si][k], T(k + 1)];
+        else [na, nb] = left ? [bot[si][k], T(k + 1)] : [T(k), bot[si][k + 1]];
+        addMember(`D${k + 1}${side}`, 'diagonal', side, k + 1, na, nb, webDir(secs.diagonal.rotate, P(na), P(nb)), { relA: webRel, relB: webRel });
       }
     } else {
-      // Warren without verticals: raking end posts and diagonals to the half-panel top chord nodes
+      // Warren: no verticals; raking end posts and diagonals to the mid-panel top chord nodes
       for (let k = 0; k < n; k++) {
         const up = [bot[si][k], top[si][k]], down = [top[si][k], bot[si][k + 1]];
         const g1: GroupKey = k === 0 ? 'endPost' : 'diagonal';
         const g2: GroupKey = k === n - 1 ? 'endPost' : 'diagonal';
-        addMember(k === 0 ? `EPL${side}` : `D${2 * k + 1}${side}`, g1, side, k + 1, up[0], up[1], webDir(input.sections[g1].rotate, P(up[0]), P(up[1])), { relA: webRel && g1 === 'diagonal', relB: webRel && g1 === 'diagonal' });
-        addMember(k === n - 1 ? `EPR${side}` : `D${2 * k + 2}${side}`, g2, side, k + 1, down[0], down[1], webDir(input.sections[g2].rotate, P(down[0]), P(down[1])), { relA: webRel && g2 === 'diagonal', relB: webRel && g2 === 'diagonal' });
+        addMember(k === 0 ? `EPL${side}` : `D${2 * k + 1}${side}`, g1, side, k + 1, up[0], up[1], webDir(secs[g1].rotate, P(up[0]), P(up[1])), { relA: webRel && g1 === 'diagonal', relB: webRel && g1 === 'diagonal', extra: [hrFrac] });
+        addMember(k === n - 1 ? `EPR${side}` : `D${2 * k + 2}${side}`, g2, side, k + 1, down[0], down[1], webDir(secs[g2].rotate, P(down[0]), P(down[1])), { relA: webRel && g2 === 'diagonal', relB: webRel && g2 === 'diagonal', extra: [1 - hrFrac] });
       }
     }
   });
@@ -256,9 +275,16 @@ export function buildModel(input: BridgeInput): BridgeModel {
         link(bot[si][k], cgEnd[si][k]);
       }
     });
-    addMember(`CG${k}`, 'crossGirder', null, k, cgEnd[0][k], cgEnd[1][k], input.sections.crossGirder.rotate ? Xd : Z);
+    addMember(`CG${k}`, 'crossGirder', null, k, cgEnd[0][k], cgEnd[1][k], secs.crossGirder.rotate ? Xd : Z, { extra: stringerYs.map((y) => (y + s / 2) / s) });
   }
-  const brDir: Vec3 = input.sections.bracing.rotate ? Yd : Z;
+  // stringers: simply supported on the cross girders, modelled on the cross girder axis (drawn seated on top);
+  // bending released at both ends and axial force released at one end, so they take no load from the chords
+  if (stringerYs.length) {
+    const seat = stringerYs.map((y) => Array.from({ length: n + 1 }, (_, k) => node(X(k), y, zCG)));
+    for (let k = 0; k < n; k++)
+      stringerYs.forEach((_, i) => addMember(`ST${k + 1}-${i + 1}`, 'stringer', null, k + 1, seat[i][k], seat[i][k + 1], secs.stringer.rotate ? Yd : Z, { relA: true, relB: true, axialB: true }));
+  }
+  const brDir: Vec3 = secs.bracing.rotate ? Yd : Z;
   const pr = input.bracingPinned;
   for (let k = 0; k < n; k++) {
     if (input.bracing === 'x') {
@@ -283,9 +309,9 @@ export function buildModel(input: BridgeInput): BridgeModel {
   // ------------------------------------------------------------ loads
   const nEl = elements.length;
   const elLoads = Object.fromEntries(
-    (['G1s', 'G1d', 'G2', 'Q', 'QL', 'QR', 'W', 'B'] as CaseKey[]).map((c) => [c, new Float64Array(nEl * 3)])
+    CASES.map((c) => [c, new Float64Array(nEl * 3)])
   ) as Record<CaseKey, Float64Array>;
-  const nodal: Record<CaseKey, LoadCase['nodal']> = { G1s: [], G1d: [], G2: [], Q: [], QL: [], QR: [], W: [], B: [] };
+  const nodal: Record<CaseKey, LoadCase['nodal']> = { G1s: [], G1d: [], G2: [], Q: [], W: [], B: [] };
   const addUdl = (c: CaseKey, m: Member, q: Vec3) => {
     for (const el of m.elements) for (let d = 0; d < 3; d++) elLoads[c][el * 3 + d] += q[d];
   };
@@ -298,21 +324,31 @@ export function buildModel(input: BridgeInput): BridgeModel {
     steelMass += (w * m.length) / g;
     addUdl('G1s', m, [0, 0, -w]);
   }
-  // deck, surfacing, pedestrian: one-way spanning onto the cross girders
+  // deck and pedestrian load: one way onto the cross girders, or across onto the stringers
   const cgs = byGroup('crossGirder');
   const deckQ = deckT * input.deckDensity;
   const tribRange = (k: number, x0: number, x1: number) => Math.max(0, Math.min(X(k) + a / 2, x1, L) - Math.max(X(k) - a / 2, x0, 0));
-  cgs.forEach((m, k) => {
-    const len = m.length;
-    const t = tribRange(k, 0, L);
-    addUdl('G1d', m, [0, 0, (-deckQ * deckWidth * t) / len]);
-    addUdl('G2', m, [0, 0, (-input.surfacing * deckWidth * t) / len]);
-    addUdl('Q', m, [0, 0, (-input.pedestrian * input.clearWidth * t) / len]);
-    addUdl('QL', m, [0, 0, (-input.pedestrian * input.clearWidth * tribRange(k, 0, L / 2)) / len]);
-    addUdl('QR', m, [0, 0, (-input.pedestrian * input.clearWidth * tribRange(k, L / 2, L)) / len]);
-  });
+  if (stringerYs.length) {
+    // width carried by each stringer within [y0, y1]: halfway to its neighbours, the outer ones to the edge
+    const share = (i: number, y0: number, y1: number) => {
+      const lo = i === 0 ? -Infinity : (stringerYs[i - 1] + stringerYs[i]) / 2;
+      const hi = i === stringerYs.length - 1 ? Infinity : (stringerYs[i] + stringerYs[i + 1]) / 2;
+      return Math.max(0, Math.min(hi, y1) - Math.max(lo, y0));
+    };
+    for (const m of byGroup('stringer')) {
+      const i = stringerYs.findIndex((y) => Math.abs(y - m.a[1]) < 1e-6);
+      addUdl('G1d', m, [0, 0, -deckQ * share(i, -deckWidth / 2, deckWidth / 2)]);
+      addUdl('Q', m, [0, 0, -input.pedestrian * share(i, -input.clearWidth / 2, input.clearWidth / 2)]);
+    }
+  } else
+    cgs.forEach((m, k) => {
+      const len = m.length;
+      const t = tribRange(k, 0, L);
+      addUdl('G1d', m, [0, 0, (-deckQ * deckWidth * t) / len]);
+      addUdl('Q', m, [0, 0, (-input.pedestrian * input.clearWidth * t) / len]);
+    });
   // screens, handrails, services on the bottom chords
-  const lineG2 = (input.screens ? input.screenLoad * input.screenHeight : 0) + input.handrailLoad + input.services / 2;
+  const lineG2 = (input.screens ? input.screenLoad * input.screenHeight : 0) + input.handrailLoad * handrailHeights.length + input.services / 2;
   for (const m of byGroup('bottomChord')) addUdl('G2', m, [0, 0, -lineG2]);
 
   // wind: projected depth of truss A (members and screens), lateral +Y, and uplift on the deck
@@ -338,19 +374,16 @@ export function buildModel(input: BridgeInput): BridgeModel {
   }
   cgs.forEach((m, k) => addUdl('W', m, [0, 0, (input.liftCoeff * deckWidth * tribRange(k, 0, L)) / m.length]));
 
-  // barrier load at handrail height on the verticals and end posts, outwards
-  if (input.barrier > 0) {
-    if (verticals) {
-      for (const m of members) {
-        if (m.group !== 'vertical' && m.group !== 'endPost') continue;
-        const i = m.stations.findIndex((f) => Math.abs(f - hrFrac) < 1e-9);
-        const nd = i > 0 ? m.nodes[i] : m.nodes[m.nodes.length - 1];
-        const trib = m.panel === 0 || m.panel === n ? a / 2 : a;
-        const dir = m.side === 'A' ? -1 : 1;
-        nodal.B.push({ node: nd, f: [0, dir * input.barrier * trib, 0, 0, 0, 0] });
-      }
-    } else for (const m of byGroup('topChord')) addUdl('B', m, [0, (m.side === 'A' ? -1 : 1) * input.barrier, 0]);
-  }
+  // barrier load at the top handrail on the web members that carry the handrail brackets, outwards
+  if (input.barrier > 0)
+    for (const m of members) {
+      if (m.group !== 'vertical' && m.group !== 'endPost' && !(m.group === 'diagonal' && !verticals)) continue;
+      const zt = deckTop + hrTop;
+      const i = m.nodes.findIndex((nd) => Math.abs(nodes[nd].z - zt) < 1e-6);
+      const nd = i >= 0 ? m.nodes[i] : m.a[2] > m.b[2] ? m.nodes[0] : m.nodes[m.nodes.length - 1];
+      const trib = verticals && m.group === 'vertical' ? a : a / 2;
+      nodal.B.push({ node: nd, f: [0, (m.side === 'A' ? -1 : 1) * input.barrier * trib, 0, 0, 0, 0] });
+    }
 
   const cases = Object.fromEntries(
     CASES.map((c) => {
@@ -384,13 +417,14 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const topNodes: BridgeModel['topNodes'] = [];
   sides.forEach(([side], si) => top[si].forEach((nd) => topNodes.push({ node: nd, side, x: nodes[nd].x })));
 
-  if (deckTop + input.handrailHeight > H + dTC / 2 + 0.3) warnings.push('The handrail is more than 300 mm above the top of the top chord.');
-  if (hrFrac >= 1 && verticals) warnings.push('The handrail is above the top chord: the barrier load is applied at the top chord.');
+  if (deckTop + hrTop > H + dTC / 2 + 0.3) warnings.push('The top handrail is more than 300 mm above the top of the top chord.');
+  if (hrFrac >= 1) warnings.push('The top handrail is above the top chord: the barrier load is applied at the top chord.');
+  if (stringerYs.length && Math.abs(stringerYs[0]) > deckWidth / 2 - 0.05) warnings.push('The outer stringers are outside the deck width; reduce the number or spacing of the stringers.');
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
   if (ang < 30 || ang > 65) warnings.push(`Diagonals are at ${ang.toFixed(0)}° to the horizontal (30° to 65° is usual).`);
 
   const geo: Geometry = {
-    L, n, a, s, chordWidth, H, dTC, dBC, wTC, wBC, zCG, dCG, cgTop, deckTop, deckWidth,
+    L, n, a, s, chordWidth, H, dTC, dBC, wTC, wBC, zCG, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckWidth,
     clearWidth: input.clearWidth,
     handrailY: input.clearWidth / 2,
     topX0: topXs[0],

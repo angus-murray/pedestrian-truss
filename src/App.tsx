@@ -10,7 +10,7 @@ import { Viewer3D, type ViewCapture } from './components/viewer/Viewer3D';
 import { AboutPage } from './components/About';
 import { generateReport, REPORT_INFO_FIELDS, type ReportInfo } from './utils/report';
 
-const STORE = 'pedtruss-input';
+const STORE = 'pedtruss-input-v2';
 
 /** Fills in any inputs missing from a saved file (older versions) with the defaults. */
 function withDefaults(x: Partial<BridgeInput>): BridgeInput {
@@ -45,7 +45,15 @@ export default function App() {
     }
   }, [input]);
   const model = useMemo(() => buildModel(input), [input]);
-  const { results, stale, solving, progress, error, solve, cancel } = useAnalysis(input);
+  const { results, stale, solving, progress, error, solve, optimise, cancel } = useAnalysis(input);
+  const [optLog, setOptLog] = useState<string[] | null>(null);
+  const onOptimise = () => {
+    setOptLog(null);
+    optimise((r) => {
+      setInput((p) => ({ ...p, sections: r.sections }));
+      setOptLog(r.log);
+    });
+  };
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => {
     if (selected !== null && selected >= model.members.length) setSelected(null);
@@ -98,7 +106,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-3">
         <div className="tab-grid">
           <fieldset className="input-column scroll-thin" disabled={solving} style={{ opacity: solving ? 0.6 : 1 }}>
-            <InputPanels input={input} set={set} model={model} />
+            <InputPanels input={input} set={set} model={model} onOptimise={onOptimise} optimiseLog={optLog} solving={solving} />
           </fieldset>
           <div className="results-column">
             <div className="h-[560px] lg:h-[calc(100vh-330px)] lg:min-h-[420px] lg:max-h-[900px]">

@@ -77,17 +77,16 @@ export function extrudeSection(outer: Pt[], holes: Pt[][], a: Vec3, b: Vec3, dep
       push(A, ni); push(C, nj); push(D, ni);
     }
   }
-  // end caps
-  const contour = rings[0].map(([x, y]) => new THREE.Vector2(x, y));
-  const holeV = rings.slice(1).map((h) => h.map(([x, y]) => new THREE.Vector2(x, y)));
-  const tris = THREE.ShapeUtils.triangulateShape(contour, holeV);
-  const all = [...rings[0], ...rings.slice(1).flat()];
+  // end caps: solid (sealed) ends, as the ends of hollow sections are capped or meet the face of another member
+  const outerRing = rings[0];
+  const tris = THREE.ShapeUtils.triangulateShape(outerRing.map(([x, y]) => new THREE.Vector2(x, y)), []);
   const capNormal = (cut: CutPlane | null | undefined, sign: number): Vec3 => {
     if (!cut || Math.abs(dot(ex, cut.n)) < 0.15) return [sign * ex[0], sign * ex[1], sign * ex[2]];
     const n = dot(cut.n, ex) * sign >= 0 ? cut.n : ([-cut.n[0], -cut.n[1], -cut.n[2]] as Vec3);
     return n;
   };
   const nA = capNormal(cutA, -1), nB = capNormal(cutB, 1);
+  const all = outerRing;
   for (const [i, j, k] of tris) {
     const ccwTri = (all[j][0] - all[i][0]) * (all[k][1] - all[i][1]) - (all[k][0] - all[i][0]) * (all[j][1] - all[i][1]) > 0;
     const [p, q, r] = ccwTri ? [i, j, k] : [i, k, j];
@@ -119,20 +118,24 @@ export function rod(a: Vec3, b: Vec3, r: number, seg = 16): THREE.BufferGeometry
   return g;
 }
 
-/** Cut planes at the ends of a member where it meets the chords or the cross girders. */
+/** Cut planes at the ends of a member where it meets the chords, the cross girders or another member. */
 export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, CutPlane | null] {
   const { geo } = model;
   const zTopFace = geo.H - geo.dTC / 2, zBotFace = geo.dBC / 2;
   const web = m.group === 'vertical' || m.group === 'diagonal' || m.group === 'endPost';
+  const webHalfY = webHalfWidth(model);
   const endCut = (p: Vec3): CutPlane | null => {
+    const knee = kneeCut(model, m, p);
+    if (knee) return knee;
     if (web) {
       if (Math.abs(p[2] - geo.H) < 1e-6) return { p: [0, 0, zTopFace], n: [0, 0, 1] };
       if (Math.abs(p[2]) < 1e-6) return { p: [0, 0, zBotFace], n: [0, 0, 1] };
     }
     if (m.group === 'crossGirder') {
-      const under = geo.cgTop <= -geo.dBC / 2 + 1e-6;
-      const y = (geo.s / 2 + (under ? geo.wBC / 2 : -geo.wBC / 2)) * Math.sign(p[1]);
-      return { p: [0, y, 0], n: [0, 1, 0] };
+      const cgBottom = geo.zCG - geo.dCG / 2;
+      // below the chord: to its outer face; level with it: to its inner face; above it: to the web members
+      const y = cgBottom >= geo.dBC / 2 - 1e-6 ? geo.s / 2 - webHalfY : geo.cgTop <= -geo.dBC / 2 + 1e-6 ? geo.s / 2 + geo.wBC / 2 : geo.s / 2 - geo.wBC / 2;
+      return { p: [0, y * Math.sign(p[1]), 0], n: [0, 1, 0] };
     }
     if (m.group === 'bracing') {
       const cg = model.members.find((x) => x.group === 'crossGirder')!;
@@ -140,9 +143,35 @@ export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, Cut
       const dir = Math.sign((m.a[0] + m.b[0]) / 2 - p[0]);
       return { p: [p[0] + dir * half, 0, 0], n: [1, 0, 0] };
     }
+    if (m.group === 'stringer') {
+      const dir = Math.sign((m.a[0] + m.b[0]) / 2 - p[0]);
+      return { p: [p[0] + dir * 0.006, 0, 0], n: [1, 0, 0] };
+    }
     return null;
   };
   return [endCut(m.a), endCut(m.b)];
+}
+
+/** Half the transverse width of the web members (inside face of the truss at s/2 minus this). */
+export function webHalfWidth(model: BridgeModel): number {
+  const w = model.members.find((x) => x.group === 'vertical') ?? model.members.find((x) => x.group === 'diagonal') ?? model.members.find((x) => x.group === 'endPost');
+  return w ? (Math.abs(w.depthDir[1]) > 0.5 ? w.sp.d : w.sp.b) / 2000 : model.geo.wTC / 2;
+}
+
+/**
+ * Mitred knee where a raking end post meets the end of the top chord: both are cut on the plane
+ * bisecting the angle between them. Null unless the member end p is at a knee.
+ */
+function kneeCut(model: BridgeModel, m: Member, p: Vec3): CutPlane | null {
+  const { geo } = model;
+  if (m.group !== 'endPost' && m.group !== 'topChord') return null;
+  if (Math.abs(p[2] - geo.H) > 1e-6 || (Math.abs(p[0] - geo.topX0) > 1e-6 && Math.abs(p[0] - geo.topX1) > 1e-6)) return null;
+  const joint = p;
+  const left = joint[0] < geo.L / 2;
+  const uChord: Vec3 = [left ? 1 : -1, 0, 0];
+  const foot: Vec3 = [left ? 0 : geo.L, joint[1], 0];
+  const uPost = unit(sub(foot, joint));
+  return { p: joint, n: unit(sub(uChord, uPost)) };
 }
 
 /** Chord end extension beyond the end node (to cover the end post), with the end cap. */
@@ -155,10 +184,6 @@ export function chordExtents(model: BridgeModel, m: Member): [Vec3, Vec3] {
     const ext = epHalfX + 0.15;
     if (m.a[0] < 1e-6) a = [m.a[0] - ext, m.a[1], m.a[2]];
     if (m.b[0] > geo.L - 1e-6) b = [m.b[0] + ext, m.b[1], m.b[2]];
-  } else if (m.group === 'topChord') {
-    const ext = geo.verticals ? epHalfX : 0.08;
-    if (Math.abs(m.a[0] - geo.topX0) < 1e-6) a = [m.a[0] - ext, m.a[1], m.a[2]];
-    if (Math.abs(m.b[0] - geo.topX1) < 1e-6) b = [m.b[0] + ext, m.b[1], m.b[2]];
   }
   return [a, b];
 }
@@ -245,6 +270,33 @@ export function chequerTexture() {
         c.rotate((i + j) % 2 ? Math.PI / 4 : -Math.PI / 4);
         c.fillRect(-s / n / 3, -s / n / 12, (2 * s) / n / 3, s / n / 6);
         c.restore();
+      }
+  });
+}
+
+/**
+ * Moulded FRP mini-mesh grating, one tile of 4 × 4 openings: bars with a gritted top and dark square openings.
+ * The side view shows the bars and openings in elevation.
+ */
+export function gratingTexture(bar: string, hole: string, side = false) {
+  return canvasTexture(256, (c, s) => {
+    c.fillStyle = bar;
+    c.fillRect(0, 0, s, s);
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 2500; i++) {
+      c.fillStyle = rnd() > 0.5 ? '#9aa0a6' : '#4c5156';
+      c.globalAlpha = 0.35;
+      c.fillRect(rnd() * s, rnd() * s, 1.5, 1.5);
+    }
+    c.globalAlpha = 1;
+    const n = 4, cell = s / n, open = cell * 0.62;
+    c.fillStyle = hole;
+    for (let i = 0; i < n; i++)
+      for (let j = 0; j < (side ? 1 : n); j++) {
+        const x = i * cell + (cell - open) / 2;
+        if (side) c.fillRect(x, s * 0.18, open, s * 0.64);
+        else c.fillRect(x, j * cell + (cell - open) / 2, open, open);
       }
   });
 }

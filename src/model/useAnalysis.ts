@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AnalysisResults } from './analysis';
+import type { OptimiseResult } from './optimise';
 import type { BridgeInput } from './types';
 
 /**
@@ -26,18 +27,24 @@ export function useAnalysis(input: BridgeInput) {
     setProgress('');
   }, []);
 
-  const solve = useCallback(() => {
+  /** Runs the analysis, or (optimise) refines the sections and then analyses; onOptimised receives the sections. */
+  const run = useCallback((kind: 'solve' | 'optimise', onOptimised?: (r: OptimiseResult) => void) => {
     worker.current?.terminate();
     const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
     worker.current = w;
     const id = ++reqId.current;
-    const solveKey = JSON.stringify(inputRef.current);
+    let solveKey = JSON.stringify(inputRef.current);
     setSolving(true);
     setError(null);
     setProgress('Starting');
-    w.onmessage = (ev: MessageEvent<{ id: number; progress?: string; results?: AnalysisResults; error?: string }>) => {
+    w.onmessage = (ev: MessageEvent<{ id: number; progress?: string; results?: AnalysisResults; optimised?: OptimiseResult; error?: string }>) => {
       if (ev.data.id !== id) return;
       if (ev.data.progress) return setProgress(ev.data.progress);
+      if (ev.data.optimised) {
+        // the results belong to the inputs with the optimised sections
+        solveKey = JSON.stringify({ ...inputRef.current, sections: ev.data.optimised.sections });
+        onOptimised?.(ev.data.optimised);
+      }
       if (ev.data.results) setSolved({ key: solveKey, results: ev.data.results });
       else setError(ev.data.error ?? 'Unknown solver error');
       setSolving(false);
@@ -50,9 +57,11 @@ export function useAnalysis(input: BridgeInput) {
       setSolving(false);
       w.terminate();
     };
-    w.postMessage({ id, input: inputRef.current });
+    w.postMessage({ id, input: inputRef.current, kind });
   }, []);
+  const solve = useCallback(() => run('solve'), [run]);
+  const optimise = useCallback((onOptimised: (r: OptimiseResult) => void) => run('optimise', onOptimised), [run]);
 
   const current = solved && solved.key === key ? solved.results : null;
-  return { results: current, stale: !!solved && solved.key !== key, solving, progress, error, solve, cancel };
+  return { results: current, stale: !!solved && solved.key !== key, solving, progress, error, solve, optimise, cancel };
 }

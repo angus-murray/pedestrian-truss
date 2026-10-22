@@ -10,6 +10,7 @@ import { CheckCircle2, Loader2, Play } from 'lucide-react';
 import type { BridgeModel } from '../../model/build';
 import { comboLabel, type AnalysisResults } from '../../model/analysis';
 import { buildBridge, groundLevel, type BridgeObjects } from './scene';
+import { buildPeople } from './people';
 import { axialColour, magnitudeColour, utilColour, UTIL_LEGEND } from './colours';
 
 export type ViewMode = 'model' | 'util' | 'axial' | 'deflection' | 'buckling' | 'vibration';
@@ -57,7 +58,10 @@ export const Viewer3D: React.FC<{
   const three = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
+    camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+    persp: THREE.PerspectiveCamera;
+    ortho: THREE.OrthographicCamera;
+    orthoHalf: number;
     controls: OrbitControls;
     sun: THREE.DirectionalLight;
     ground: THREE.Mesh;
@@ -73,6 +77,8 @@ export const Viewer3D: React.FC<{
   const [vMode, setVMode] = useState(0);
   const [scale, setScale] = useState(1);
   const [showDeck, setShowDeck] = useState(true);
+  const [showPeople, setShowPeople] = useState(false);
+  const people = useRef<THREE.Group | null>(null);
   const [hover, setHover] = useState<{ id: number; x: number; y: number } | null>(null);
   const hasResults = !!results && !results.errors.length && results.design.length > 0;
 
@@ -100,6 +106,9 @@ export const Viewer3D: React.FC<{
     scene.environmentIntensity = 0.55;
     const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 2000);
     camera.up.set(0, 0, 1);
+    // true (orthographic) projection for the elevation, plan and end views
+    const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -500, 2000);
+    ortho.up.set(0, 0, 1);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.12;
@@ -116,22 +125,29 @@ export const Viewer3D: React.FC<{
     const overlay = new THREE.Group();
     scene.add(overlay);
     const lineMats: LineMaterial[] = [];
-    three.current = { renderer, scene, camera, controls, sun, ground, overlay, lineMats, animate: null };
+    three.current = { renderer, scene, camera, persp: camera, ortho, orthoHalf: 20, controls, sun, ground, overlay, lineMats, animate: null };
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
       if (!w || !h) return;
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      const half = three.current?.orthoHalf ?? 20;
+      ortho.left = -half;
+      ortho.right = half;
+      ortho.top = (half * h) / w;
+      ortho.bottom = (-half * h) / w;
+      ortho.updateProjectionMatrix();
       lineMats.forEach((m) => m.resolution.set(w, h));
     };
     const ro = new ResizeObserver(resize);
     ro.observe(el);
     resize();
-    renderer.setAnimationLoop((t) => {
+    renderer.setAnimationLoop((time) => {
       controls.update();
-      three.current?.animate?.(t / 1000);
-      renderer.render(scene, camera);
+      const t = three.current;
+      t?.animate?.(time / 1000);
+      if (t) renderer.render(scene, t.camera);
     });
     return () => {
       ro.disconnect();
@@ -160,13 +176,28 @@ export const Viewer3D: React.FC<{
     const { geo } = model;
     const c = new THREE.Vector3(geo.L / 2, 0, geo.H / 2);
     const r = Math.max(geo.L, 8);
-    const dist = (r / 2 / Math.tan((t.camera.fov * Math.PI) / 360)) * 1.15;
-    const dir =
-      v === 'elev' ? new THREE.Vector3(0, -1, 0) : v === 'plan' ? new THREE.Vector3(0, -0.0001, 1) : v === 'end' ? new THREE.Vector3(-1, 0, 0.02) : new THREE.Vector3(-0.5, -1, 0.38);
-    const d = v === 'end' ? Math.max(geo.s, geo.H) * 3.2 : v === 'iso' ? dist * 0.78 : dist;
-    t.camera.position.copy(c.clone().add(dir.normalize().multiplyScalar(d)));
-    t.controls.target.copy(v === 'end' ? new THREE.Vector3(0, 0, geo.H / 2) : c);
+    if (v === 'iso') {
+      const dist = (r / 2 / Math.tan((t.persp.fov * Math.PI) / 360)) * 1.15;
+      t.camera = t.persp;
+      t.persp.position.copy(c.clone().add(new THREE.Vector3(-0.5, -1, 0.38).normalize().multiplyScalar(dist * 0.78)));
+      t.controls.target.copy(c);
+    } else {
+      const target = v === 'end' ? new THREE.Vector3(0, 0, geo.H / 2) : c;
+      const dir = v === 'elev' ? new THREE.Vector3(0, -1, 0) : v === 'plan' ? new THREE.Vector3(0, -0.0001, 1) : new THREE.Vector3(-1, 0, 0);
+      t.orthoHalf = (v === 'end' ? Math.max(geo.s, geo.H) + 3 : geo.L + 4) / 2;
+      t.camera = t.ortho;
+      t.ortho.zoom = 1;
+      t.ortho.position.copy(target.clone().add(dir.multiplyScalar(100)));
+      t.controls.target.copy(target);
+      const w = mountRef.current!.clientWidth, h = mountRef.current!.clientHeight;
+      t.ortho.left = -t.orthoHalf;
+      t.ortho.right = t.orthoHalf;
+      t.ortho.top = (t.orthoHalf * h) / w;
+      t.ortho.bottom = (-t.orthoHalf * h) / w;
+    }
+    t.controls.object = t.camera;
     t.camera.updateProjectionMatrix();
+    t.controls.update();
   };
 
   // ---------------------------------------------------------------- bridge geometry
@@ -180,6 +211,13 @@ export const Viewer3D: React.FC<{
     const b = buildBridge(model);
     bridge.current = b;
     t.scene.add(b.root);
+    if (people.current) {
+      t.scene.remove(people.current);
+      people.current.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    people.current = buildPeople(model);
+    people.current.visible = showPeople;
+    t.scene.add(people.current);
     const { geo } = model;
     t.ground.position.set(geo.L / 2, 0, groundLevel(model) - 0.005);
     t.sun.position.set(geo.L / 2 - 12, -18, 30);
@@ -208,6 +246,7 @@ export const Viewer3D: React.FC<{
     t.lineMats.splice(0).forEach((m) => m.dispose());
     t.animate = null;
     b.furniture.visible = showDeck;
+    if (people.current) people.current.visible = showDeck && showPeople;
     b.context.visible = true;
 
     const res = hasResults ? results! : null;
@@ -291,8 +330,8 @@ export const Viewer3D: React.FC<{
     t.lineMats.push(lm);
     const lines = new LineSegments2(geom, lm);
     t.overlay.add(lines);
-    if (mode !== 'deflection') t.animate = (time) => place(amp * Math.sin(time * 2.4));
-  }, [results, hasResults, mode, combo, bCombo, bMode, vMode, scale, showDeck, selected, modelKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (mode === 'vibration') t.animate = (time) => place(amp * Math.sin(time * 2.4));
+  }, [results, hasResults, mode, combo, bCombo, bMode, vMode, scale, showDeck, showPeople, selected, modelKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- picking
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -332,7 +371,7 @@ export const Viewer3D: React.FC<{
   }, [captureRef]);
 
   const hm = hover ? model.members[hover.id] : null;
-  const hd = hover && hasResults ? results!.design[hover.id] : null;
+  const hoverInfo = hm && hasResults ? hoverDetail(mode, results!, hm.id, model, combo) : null;
   const bk = hasResults ? results!.buckling[Math.min(bCombo, results!.buckling.length - 1)] : null;
 
   return (
@@ -370,6 +409,10 @@ export const Viewer3D: React.FC<{
         <label className="check px-2 h-6">
           <input type="checkbox" className="checkbox" checked={showDeck} onChange={(e) => setShowDeck(e.target.checked)} />
           <span>Deck &amp; Screens</span>
+        </label>
+        <label className={`check px-2 h-6 ${showDeck ? '' : 'opacity-50'}`} title="Pedestrians and cyclists, for illustration only">
+          <input type="checkbox" className="checkbox" checked={showPeople} disabled={!showDeck} onChange={(e) => setShowPeople(e.target.checked)} />
+          <span>People</span>
         </label>
       </div>
 
@@ -482,19 +525,52 @@ export const Viewer3D: React.FC<{
         <div className="absolute pointer-events-none bg-white border border-slate-200 rounded-lg shadow-lg px-2 py-1.5 text-[11px] text-slate-700 tabular-nums" style={{ left: Math.min(hover.x + 14, (mountRef.current?.clientWidth ?? 400) - 200), top: hover.y + 14 }}>
           <div className="font-semibold text-slate-800">{hm.name}</div>
           <div>{hm.sp.def.name}</div>
-          <div>
-            Length {hm.length.toFixed(3)} m
-          </div>
-          {hd && (
-            <div>
-              Utilisation <span className="font-semibold">{pct(hd.util)}</span> ({hd.governing})
-            </div>
-          )}
+          {(mode === 'model' || !hoverInfo) && <div>Length {hm.length.toFixed(3)} m</div>}
+          {hoverInfo}
         </div>
       )}
     </div>
   );
 };
+
+/** Hover text for the current view: utilisation, axial force or displacement of the member. */
+function hoverDetail(mode: ViewMode, res: AnalysisResults, id: number, model: BridgeModel, combo: number): React.ReactNode {
+  const ci = combo < 0 ? 0 : combo;
+  if (mode === 'util') {
+    const d = res.design[id];
+    const u = combo < 0 ? d.util : d.byCombo[combo] ?? 0;
+    return (
+      <div>
+        Utilisation <span className="font-semibold">{pct(u)}</span> ({combo < 0 ? d.governing : 'this combination'})
+      </div>
+    );
+  }
+  if (mode === 'axial') {
+    const sf = res.forces[ci][id];
+    let N = 0;
+    for (let s = 0; s < sf.length; s += 6) if (Math.abs(sf[s]) > Math.abs(N)) N = sf[s];
+    return (
+      <div>
+        <i>N</i>* = <span className="font-semibold">{Math.abs(N).toFixed(1)} kN</span> {N >= 0 ? 'tension' : 'compression'}
+      </div>
+    );
+  }
+  if (mode === 'deflection') {
+    const u = res.disp[ci];
+    let v = 0, l = 0, tot = 0;
+    for (const nd of model.members[id].nodes) {
+      v = Math.max(v, Math.abs(u[nd * 6 + 2]));
+      l = Math.max(l, Math.abs(u[nd * 6 + 1]));
+      tot = Math.max(tot, Math.hypot(u[nd * 6], u[nd * 6 + 1], u[nd * 6 + 2]));
+    }
+    return (
+      <div>
+        Max displacement <span className="font-semibold">{(tot * 1000).toFixed(1)} mm</span> (vertical {(v * 1000).toFixed(1)}, lateral {(l * 1000).toFixed(1)})
+      </div>
+    );
+  }
+  return null;
+}
 
 function axialMax(res: AnalysisResults, ci: number) {
   let mx = 0;
