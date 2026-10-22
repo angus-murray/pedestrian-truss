@@ -1,0 +1,457 @@
+import React, { useMemo, useState } from 'react';
+import { NumberField, SelectField, Check, Segmented, Modal } from 'engineering-ui';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { CATEGORIES, sectionsOf, type SectionCategory } from '../data/sections';
+import { defaultGrade, gradesFor } from '../data/grades';
+import { sectionProps } from '../design/section';
+import {
+  DECK_INFO,
+  DEFAULT_COMBOS,
+  GROUP_INFO,
+  GROUPS,
+  type BridgeInput,
+  type Combination,
+  type DeckType,
+  type Finish,
+  type GroupKey,
+  type LeMethod,
+  type TrussType
+} from '../model/types';
+import { panelCount, type BridgeModel } from '../model/build';
+import { windPressure } from '../model/analysis';
+import { FINISH } from './viewer/scene';
+
+type Set = <K extends keyof BridgeInput>(k: K, v: BridgeInput[K]) => void;
+
+const S: React.FC<{ s: string; sub?: string }> = ({ s, sub }) => (
+  <>
+    <i>{s}</i>
+    {sub && <sub>{sub}</sub>}
+  </>
+);
+
+const Readout: React.FC<{ label: React.ReactNode; value: React.ReactNode; title?: string }> = ({ label, value, title }) => (
+  <div className="readout" title={title}>
+    <span>{label}</span>
+    <span className="readout-value">{value}</span>
+  </div>
+);
+
+export const InputPanels: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }> = ({ input, set, model }) => {
+  const { geo } = model;
+  const n = panelCount(input);
+  return (
+    <>
+      {/* ---------------------------------------------------------------- geometry */}
+      <section className="panel">
+        <h2 className="panel-title" title="Pony (half-through) truss: two parallel trusses with a deck on cross girders at the bottom chord panel points. The top chords are restrained laterally only by the U-frames formed by the verticals and cross girders.">
+          Geometry
+        </h2>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label={<>Span <S s="L" /> (m)</>} value={input.span} onChange={(v) => set('span', v)} min={6} max={80} step={0.5} title="Centre to centre of bearings" />
+          <NumberField label={<>Truss Depth <S s="h" /> (m)</>} value={input.depth} onChange={(v) => set('depth', v)} min={0.6} max={4} step={0.05} decimals={2} title="Centroid of the bottom chord to centroid of the top chord" />
+        </div>
+        <div>
+          <label className="label">Truss Type</label>
+          <Segmented<TrussType>
+            value={input.trussType}
+            onChange={(v) => set('trussType', v)}
+            options={[
+              { value: 'warren', label: 'Warren' },
+              { value: 'pratt', label: 'Pratt' },
+              { value: 'howe', label: 'Howe' }
+            ]}
+          />
+        </div>
+        {input.trussType === 'warren' && (
+          <Check checked={input.warrenVerticals} onChange={(v) => set('warrenVerticals', v)} title="Without verticals the top chord has nodes at mid-panel, the end posts are raking and the U-frames are formed by the diagonals.">
+            Verticals at Every Panel Point
+          </Check>
+        )}
+        <div className="grid grid-cols-2 gap-2 items-end">
+          <NumberField label="Panel Length Target (m)" value={input.panelTarget} onChange={(v) => set('panelTarget', v)} min={1} max={6} step={0.1} decimals={2} title="The number of panels is the nearest even number to span / target" />
+          <div className="space-y-1 pb-1">
+            <Readout label="Panels" value={n} />
+            <Readout label={<>Panel Length <S s="a" /></>} value={`${(input.span / n).toFixed(3)} m`} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Clear Width (m)" value={input.clearWidth} onChange={(v) => set('clearWidth', v)} min={1} max={8} step={0.1} decimals={2} title="Between the inside faces of the handrails" />
+          <NumberField label="Handrail Width (mm)" value={input.handrailWidth} onChange={(v) => set('handrailWidth', v)} min={0} max={400} step={10} title="Inside face of the truss to the inside face of the handrail" />
+        </div>
+        <Readout label="Chord Width" value={`${(geo.chordWidth * 1000).toFixed(0)} mm`} title="Horizontal width of the wider chord" />
+        <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail width + chord width" />
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Cross Girder Drop (mm)" value={input.cgTopOffset} onChange={(v) => set('cgTopOffset', v)} min={0} max={600} step={5} title="Top of the cross girders below the top of the bottom chord. The cross girders are connected to the bottom chord nodes by rigid links." />
+          <SelectField
+            label="Plan Bracing"
+            value={input.bracing}
+            onChange={(v) => set('bracing', v as BridgeInput['bracing'])}
+            options={[
+              { value: 'x', label: 'X-Bracing' },
+              { value: 'single', label: 'Single Diagonals' },
+              { value: 'none', label: 'None' }
+            ]}
+          />
+        </div>
+        <Check checked={input.webPinned} onChange={(v) => set('webPinned', v)} title="Diagonals with bending released at both ends. Verticals stay moment connected (U-frames).">
+          Pinned Diagonal Ends
+        </Check>
+        <Check checked={input.bracingPinned} onChange={(v) => set('bracingPinned', v)}>
+          Pinned Plan Bracing Ends
+        </Check>
+      </section>
+
+      {/* ---------------------------------------------------------------- deck and furniture */}
+      <section className="panel">
+        <h2 className="panel-title">Deck &amp; Furniture</h2>
+        <div className="grid grid-cols-2 gap-2">
+          <SelectField
+            label="Deck"
+            value={input.deckType}
+            onChange={(v) => {
+              const d = DECK_INFO[v as DeckType];
+              set('deckType', v as DeckType);
+              set('deckThickness', d.thickness);
+              set('deckDensity', d.density);
+            }}
+            options={(Object.keys(DECK_INFO) as DeckType[]).map((k) => ({ value: k, label: DECK_INFO[k].label }))}
+          />
+          <NumberField label={<>Thickness <S s="t" sub="d" /> (mm)</>} value={input.deckThickness} onChange={(v) => set('deckThickness', v)} min={5} max={300} step={5} />
+        </div>
+        <div className="grid grid-cols-2 gap-2 items-end">
+          <NumberField label="Unit Weight (kN/m³)" value={input.deckDensity} onChange={(v) => set('deckDensity', v)} min={1} max={80} step={0.5} />
+          <div className="pb-2">
+            <Readout label="Deck Weight" value={`${((input.deckThickness / 1000) * input.deckDensity).toFixed(2)} kPa`} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Surfacing (kPa)" value={input.surfacing} onChange={(v) => set('surfacing', v)} min={0} max={5} step={0.05} decimals={2} />
+          <NumberField label="Services (kN/m)" value={input.services} onChange={(v) => set('services', v)} min={0} max={10} step={0.1} decimals={2} title="Total for the bridge, shared equally by the bottom chords" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Handrail Height (m)" value={input.handrailHeight} onChange={(v) => set('handrailHeight', v)} min={0.8} max={1.6} step={0.05} decimals={2} title="Above the deck" />
+          <NumberField label="Handrail Weight (kN/m)" value={input.handrailLoad} onChange={(v) => set('handrailLoad', v)} min={0} max={2} step={0.05} decimals={2} title="Per side" />
+        </div>
+        <Check checked={input.screens} onChange={(v) => set('screens', v)}>
+          Mesh Screens
+        </Check>
+        {input.screens && (
+          <div className="nested">
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField label="Height Above Deck (m)" value={input.screenHeight} onChange={(v) => set('screenHeight', v)} min={0.5} max={4} step={0.1} decimals={2} />
+              <NumberField label="Weight (kPa)" value={input.screenLoad} onChange={(v) => set('screenLoad', v)} min={0} max={2} step={0.05} decimals={2} />
+            </div>
+            <NumberField label="Solidity (%)" value={Math.round(input.screenSolidity * 100)} onChange={(v) => set('screenSolidity', v / 100)} min={0} max={100} step={5} title="Solid area of the mesh as a share of its area (for wind)" />
+          </div>
+        )}
+        <SelectField label="Steel Finish" value={input.finish} onChange={(v) => set('finish', v as Finish)} options={(Object.keys(FINISH) as Finish[]).map((k) => ({ value: k, label: FINISH[k].label }))} />
+      </section>
+
+      {/* ---------------------------------------------------------------- sections */}
+      <section className="panel">
+        <h2 className="panel-title" title="Section depth direction: the direction of the section depth (d) in the bridge.">Sections</h2>
+        {GROUPS.map((g, i) => (
+          <SectionRow key={g} group={g} input={input} set={set} first={i === 0} />
+        ))}
+        <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
+      </section>
+
+      {/* ---------------------------------------------------------------- loads */}
+      <LoadsPanel input={input} set={set} />
+
+      {/* ---------------------------------------------------------------- design */}
+      <DesignPanel input={input} set={set} />
+    </>
+  );
+};
+
+const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; first: boolean }> = ({ group, input, set, first }) => {
+  const g = input.sections[group];
+  const info = GROUP_INFO[group];
+  const list = sectionsOf(g.category);
+  const update = (patch: Partial<typeof g>) => set('sections', { ...input.sections, [group]: { ...g, ...patch } });
+  const sp = sectionProps(g);
+  const idx = list.findIndex((s) => s.name === g.name);
+  return (
+    <div className={first ? 'space-y-2' : 'section !space-y-2'}>
+      <div className="flex items-baseline justify-between">
+        <h3 className="card-title">{info.label}</h3>
+        <span className="text-[11px] text-slate-500 tabular-nums">{sp.mass.toFixed(1)} kg/m</span>
+      </div>
+      <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-2">
+        <SelectField
+          value={g.category}
+          onChange={(v) => {
+            const c = v as SectionCategory;
+            const opts = sectionsOf(c);
+            const near = opts.reduce((a, s) => (Math.abs(s.depth - sp.d) < Math.abs(a.depth - sp.d) ? s : a), opts[0]);
+            update({ category: c, name: near.name, grade: defaultGrade(c) });
+          }}
+          options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+        />
+        <div className="relative">
+          <select className="control !pr-11" value={g.name} onChange={(e) => update({ name: e.target.value })}>
+            {list.map((s) => (
+              <option key={s.name} value={s.name}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <div className="spin !right-6">
+            <button type="button" tabIndex={-1} className="spin-btn" title="Next size" onClick={() => idx < list.length - 1 && update({ name: list[idx + 1].name })}>
+              <ChevronUp size={11} strokeWidth={2.5} />
+            </button>
+            <button type="button" tabIndex={-1} className="spin-btn" title="Previous size" onClick={() => idx > 0 && update({ name: list[idx - 1].name })}>
+              <ChevronDown size={11} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <SelectField value={g.grade} onChange={(v) => update({ grade: v })} options={gradesFor(g.category).map((x) => ({ value: x.name, label: x.name }))} />
+        <SelectField
+          value={g.rotate ? 'r' : 'd'}
+          onChange={(v) => update({ rotate: v === 'r' })}
+          options={[
+            { value: 'd', label: `Depth ${info.depthDir}` },
+            { value: 'r', label: `Depth ${info.rotDir}` }
+          ]}
+        />
+      </div>
+    </div>
+  );
+};
+
+const LoadsPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) => {
+  const [edit, setEdit] = useState(false);
+  return (
+    <section className="panel">
+      <h2 className="panel-title" title="Load values and factors are inputs; confirm them against AS 5100.2 and the project requirements.">
+        Loads
+      </h2>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField label="Pedestrian Load (kPa)" value={input.pedestrian} onChange={(v) => set('pedestrian', v)} min={0} max={20} step={0.5} decimals={1} title="On the clear width" />
+        <NumberField label="Connections (% of Steel)" value={input.connectionAllowance} onChange={(v) => set('connectionAllowance', v)} min={0} max={30} step={1} />
+      </div>
+      <Check checked={input.patterns} onChange={(v) => set('patterns', v)} title="Each ULS combination with pedestrian load is also run with the load on the left half and on the right half of the span.">
+        Pattern Pedestrian Loading (Half Span)
+      </Check>
+      <div className="section">
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label={<>ULS Wind Speed <S s="V" sub="u" /> (m/s)</>} value={input.windUls} onChange={(v) => set('windUls', v)} min={0} max={90} step={1} />
+          <NumberField label={<>SLS Wind Speed <S s="V" sub="s" /> (m/s)</>} value={input.windSls} onChange={(v) => set('windSls', v)} min={0} max={90} step={1} />
+        </div>
+        <Readout label="Wind Pressure ULS / SLS" value={`${windPressure(input.windUls).toFixed(2)} / ${windPressure(input.windSls).toFixed(2)} kPa`} title="q = 0.6 V² / 1000" />
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label={<>Drag Coefficient <S s="C" sub="d" /></>} value={input.dragCoeff} onChange={(v) => set('dragCoeff', v)} min={0} max={4} step={0.05} decimals={2} title="On the projected solid area of the windward truss and screen" />
+          <NumberField label={<>Lift Coefficient <S s="C" sub="L" /></>} value={input.liftCoeff} onChange={(v) => set('liftCoeff', v)} min={0} max={2} step={0.05} decimals={2} title="Uplift on the deck plan area" />
+        </div>
+      </div>
+      <div className="section">
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Barrier Load (kN/m)" value={input.barrier} onChange={(v) => set('barrier', v)} min={0} max={10} step={0.25} decimals={2} title="Horizontal, outwards, at handrail height on the verticals" />
+          <NumberField label="U-Frame Restraint (%)" value={input.restraintPct} onChange={(v) => set('restraintPct', v)} min={0} max={10} step={0.5} decimals={1} title="Lateral force at each top chord node, as a percentage of the top chord compression, acting inwards (ULS combinations). 0 = not applied." />
+        </div>
+        <button type="button" className="btn w-full" onClick={() => setEdit(true)}>
+          Load Combinations ({input.combos.length})…
+        </button>
+      </div>
+      {edit && <CombosDialog combos={input.combos} onChange={(c) => set('combos', c)} onClose={() => setEdit(false)} />}
+    </section>
+  );
+};
+
+const CombosDialog: React.FC<{ combos: Combination[]; onChange: (c: Combination[]) => void; onClose: () => void }> = ({ combos, onChange, onClose }) => {
+  const upd = (i: number, patch: Partial<Combination>) => onChange(combos.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const num = (i: number, k: 'g1s' | 'g1d' | 'g2' | 'q' | 'w' | 'b') => (
+    <input
+      type="text"
+      inputMode="decimal"
+      className="control-sm w-full text-center tabular-nums"
+      defaultValue={String(combos[i][k])}
+      key={`${i}-${k}-${combos[i][k]}`}
+      onBlur={(e) => {
+        const v = parseFloat(e.target.value.replace('−', '-'));
+        if (Number.isFinite(v)) upd(i, { [k]: v });
+        else e.target.value = String(combos[i][k]);
+      }}
+    />
+  );
+  return (
+    <Modal title="Load Combinations" onClose={onClose} variant="page">
+      <div className="panel">
+        <div className="overflow-x-auto">
+          <table className="rtable min-w-[760px]">
+            <colgroup>
+              {[26, 9, 8, 8, 8, 8, 8, 8, 9, 8].map((w, i) => (
+                <col key={i} style={{ width: `${w}%` }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th title="Steel self-weight">G1 Steel</th>
+                <th title="Deck self-weight">G1 Deck</th>
+                <th title="Superimposed dead load">G2</th>
+                <th title="Pedestrian load">Q</th>
+                <th title="Wind, factor on the ULS or SLS wind pressure">W</th>
+                <th title="Barrier load">B</th>
+                <th title="SLS: check the vertical deflection against the limit">Deflection Check</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {combos.map((c, i) => (
+                <tr key={i}>
+                  <td>
+                    <input type="text" className="control-sm w-full" defaultValue={c.name} key={`${i}-n-${c.name}`} onBlur={(e) => upd(i, { name: e.target.value || c.name })} />
+                  </td>
+                  <td>
+                    <select className="control-sm w-full" value={c.type} onChange={(e) => upd(i, { type: e.target.value as Combination['type'] })}>
+                      <option value="ULS">ULS</option>
+                      <option value="SLS">SLS</option>
+                    </select>
+                  </td>
+                  <td>{num(i, 'g1s')}</td>
+                  <td>{num(i, 'g1d')}</td>
+                  <td>{num(i, 'g2')}</td>
+                  <td>{num(i, 'q')}</td>
+                  <td>{num(i, 'w')}</td>
+                  <td>{num(i, 'b')}</td>
+                  <td>
+                    <input type="checkbox" className="checkbox" disabled={c.type === 'ULS'} checked={c.type === 'SLS' && c.deflection} onChange={(e) => upd(i, { deflection: e.target.checked })} />
+                  </td>
+                  <td>
+                    <button type="button" className="text-slate-400 hover:text-rose-600" title="Delete" onClick={() => onChange(combos.filter((_, j) => j !== i))}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex gap-2 justify-between">
+          <button type="button" className="btn" onClick={() => onChange([...combos, { name: 'New', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 0, w: 0, b: 0, deflection: false }])}>
+            <Plus className="w-3.5 h-3.5" />
+            Add Combination
+          </button>
+          <div className="flex gap-2">
+            <button type="button" className="btn" onClick={() => onChange(DEFAULT_COMBOS)}>
+              Restore Defaults
+            </button>
+            <button type="button" className="btn-primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+const LE_OPTIONS: { value: LeMethod; label: string }[] = [
+  { value: 'buckling', label: 'Buckling Analysis' },
+  { value: 'factor', label: 'Factor × Length' },
+  { value: 'uframe', label: 'U-Frame' }
+];
+
+const DesignPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) => {
+  const upd = (g: GroupKey, patch: Partial<BridgeInput['design'][GroupKey]>) => set('design', { ...input.design, [g]: { ...input.design[g], ...patch } });
+  const k = (g: GroupKey, key: 'kMajor' | 'kMinor' | 'kLtb', disabled: boolean) => (
+    <input
+      type="text"
+      inputMode="decimal"
+      disabled={disabled}
+      className="control-sm w-full text-center tabular-nums px-1 disabled:bg-slate-100 disabled:text-slate-400"
+      defaultValue={disabled ? '–' : input.design[g][key].toFixed(2)}
+      key={`${g}-${key}-${input.design[g][key]}-${disabled}`}
+      onBlur={(e) => {
+        const v = parseFloat(e.target.value);
+        if (Number.isFinite(v) && v > 0) upd(g, { [key]: v });
+        else e.target.value = input.design[g][key].toFixed(2);
+      }}
+    />
+  );
+  const rows = useMemo(() => GROUPS, []);
+  return (
+    <section className="panel">
+      <h2 className="panel-title" title="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">
+        Member Design
+      </h2>
+      <table className="w-full text-[11px] text-slate-600 border-separate border-spacing-y-1">
+        <colgroup>
+          <col style={{ width: '25%' }} />
+          <col style={{ width: '36%' }} />
+          <col style={{ width: '13%' }} />
+          <col style={{ width: '13%' }} />
+          <col style={{ width: '13%' }} />
+        </colgroup>
+        <thead>
+          <tr className="font-medium">
+            <th className="text-left font-medium">Member</th>
+            <th className="text-left font-medium">Effective Length</th>
+            <th className="font-medium" title="Effective length factor, major axis">
+              <S s="k" sub="x" />
+            </th>
+            <th className="font-medium" title="Effective length factor, minor axis">
+              <S s="k" sub="y" />
+            </th>
+            <th className="font-medium" title="Lateral–torsional buckling segment length factor">
+              <S s="k" sub="LTB" />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((g) => {
+            const d = input.design[g];
+            const uOk = g === 'topChord';
+            return (
+              <tr key={g}>
+                <td className="font-medium pr-1">{GROUP_INFO[g].label}</td>
+                <td className="pr-1">
+                  <select className="control-sm w-full" value={d.method} onChange={(e) => upd(g, { method: e.target.value as LeMethod })}>
+                    {LE_OPTIONS.filter((o) => o.value !== 'uframe' || uOk).map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-0.5">{k(g, 'kMajor', d.method === 'buckling')}</td>
+                <td className="px-0.5">{k(g, 'kMinor', d.method !== 'factor')}</td>
+                <td className="px-0.5">{k(g, 'kLtb', false)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField label="Buckling Modes" value={input.bucklingModes} onChange={(v) => set('bucklingModes', Math.round(v))} min={1} max={20} step={1} title="Number of buckling modes computed for each ULS combination" />
+        <NumberField label="Participation (%)" value={input.participation} onChange={(v) => set('participation', v)} min={1} max={100} step={1} title="A member takes its buckling load from the lowest mode in which its strain energy is at least this share of that of the most strained member" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField label="Elements per Member" value={input.elementsPerMember} onChange={(v) => set('elementsPerMember', Math.round(v))} min={2} max={10} step={1} />
+        <div className="flex items-end pb-2">
+          <Check checked={input.amplify} onChange={(v) => set('amplify', v)} title="Moments in compression members amplified by 1 / (1 − N*/N_om)">
+            Moment Amplification
+          </Check>
+        </div>
+      </div>
+      <div className="section">
+        <h3 className="card-title">Serviceability</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Deflection Limit (L / …)" value={input.deflLimit} onChange={(v) => set('deflLimit', v)} min={100} max={2000} step={50} />
+          <NumberField label="Mass From Q (%)" value={input.modalQ} onChange={(v) => set('modalQ', v)} min={0} max={100} step={5} title="Share of the pedestrian load included as mass for the natural frequencies" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <NumberField label="Vert. Min (Hz)" value={input.freqVertMin} onChange={(v) => set('freqVertMin', v)} min={0} max={10} step={0.1} decimals={1} title="Vertical frequencies between the minimum and maximum need a dynamic assessment" />
+          <NumberField label="Vert. Max (Hz)" value={input.freqVertMax} onChange={(v) => set('freqVertMax', v)} min={0} max={10} step={0.1} decimals={1} />
+          <NumberField label="Lateral Min (Hz)" value={input.freqLatMin} onChange={(v) => set('freqLatMin', v)} min={0} max={10} step={0.1} decimals={1} title="Lateral frequencies below this need a dynamic assessment" />
+        </div>
+      </div>
+    </section>
+  );
+};

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#1e293b"/>
+  <!-- Pony truss in elevation: chords, verticals and Pratt diagonals -->
+  <g fill="none" stroke="#93c5fd" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 22h24M4 12h24M4 12v10M28 12v10M10 12v10M16 12v10M22 12v10"/>
+    <path d="M4 12l6 10M10 12l6 10M22 22l6-10M16 22l6-10"/>
+  </g>
+  <path d="M3 24.5h26" stroke="#e2e8f0" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

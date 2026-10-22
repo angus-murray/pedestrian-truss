@@ -1,0 +1,187 @@
+import type { SectionCategory } from '../data/sections';
+
+export type TrussType = 'warren' | 'pratt' | 'howe';
+export type BracingType = 'x' | 'single' | 'none';
+export type DeckType = 'concrete' | 'precast' | 'frp' | 'timber' | 'steel';
+export type GroupKey = 'topChord' | 'bottomChord' | 'endPost' | 'vertical' | 'diagonal' | 'crossGirder' | 'bracing';
+export type LeMethod = 'buckling' | 'factor' | 'uframe';
+export type Finish = 'galvanised' | 'grey' | 'green' | 'charcoal';
+
+export interface GroupSection {
+  category: SectionCategory;
+  name: string;
+  grade: string;
+  /** Section depth rotated 90° from the default direction (see GROUP_INFO). */
+  rotate: boolean;
+}
+
+export interface GroupDesign {
+  method: LeMethod;
+  /** Effective length factors for buckling about the major and minor axes (factor method). */
+  kMajor: number;
+  kMinor: number;
+  /** Effective length factor for lateral–torsional buckling. */
+  kLtb: number;
+}
+
+export interface Combination {
+  name: string;
+  type: 'ULS' | 'SLS';
+  /** Factors on G1 steel, G1 deck, G2, Q, W, B. */
+  g1s: number;
+  g1d: number;
+  g2: number;
+  q: number;
+  w: number;
+  b: number;
+  /** SLS only: check the vertical deflection against the limit. */
+  deflection: boolean;
+}
+
+export interface BridgeInput {
+  // geometry
+  span: number; // m, centre to centre of bearings
+  trussType: TrussType;
+  warrenVerticals: boolean;
+  panelTarget: number; // m
+  depth: number; // m, centroid of bottom chord to centroid of top chord
+  clearWidth: number; // m, between handrails
+  handrailWidth: number; // mm, inside face of truss to inside face of handrail
+  cgTopOffset: number; // mm, top of cross girder below top of bottom chord
+  bracing: BracingType;
+  webPinned: boolean;
+  bracingPinned: boolean;
+  // deck and furniture
+  deckType: DeckType;
+  deckThickness: number; // mm
+  deckDensity: number; // kN/m³
+  surfacing: number; // kPa
+  screens: boolean;
+  screenHeight: number; // m above deck
+  screenLoad: number; // kPa
+  screenSolidity: number; // 0–1
+  handrailHeight: number; // m above deck
+  handrailLoad: number; // kN/m per side
+  services: number; // kN/m total
+  finish: Finish;
+  // sections
+  sections: Record<GroupKey, GroupSection>;
+  // loads
+  connectionAllowance: number; // %
+  pedestrian: number; // kPa
+  patterns: boolean;
+  windUls: number; // m/s
+  windSls: number; // m/s
+  dragCoeff: number;
+  liftCoeff: number;
+  barrier: number; // kN/m
+  restraintPct: number; // % of top chord force, 0 = off
+  combos: Combination[];
+  // design
+  design: Record<GroupKey, GroupDesign>;
+  amplify: boolean;
+  bucklingModes: number;
+  elementsPerMember: number;
+  participation: number; // %
+  deflLimit: number; // span / x
+  freqVertMin: number; // Hz
+  freqVertMax: number; // Hz
+  freqLatMin: number; // Hz
+  modalQ: number; // % of pedestrian load as mass
+}
+
+export const GROUPS: GroupKey[] = ['topChord', 'bottomChord', 'endPost', 'vertical', 'diagonal', 'crossGirder', 'bracing'];
+
+export const GROUP_INFO: Record<GroupKey, { label: string; short: string; depthDir: string; rotDir: string }> = {
+  topChord: { label: 'Top Chord', short: 'TC', depthDir: 'Vertical', rotDir: 'Horizontal' },
+  bottomChord: { label: 'Bottom Chord', short: 'BC', depthDir: 'Vertical', rotDir: 'Horizontal' },
+  endPost: { label: 'End Posts', short: 'EP', depthDir: 'Transverse', rotDir: 'Longitudinal' },
+  vertical: { label: 'Verticals', short: 'V', depthDir: 'Transverse', rotDir: 'In Plane' },
+  diagonal: { label: 'Diagonals', short: 'D', depthDir: 'Transverse', rotDir: 'In Plane' },
+  crossGirder: { label: 'Cross Girders', short: 'CG', depthDir: 'Vertical', rotDir: 'Horizontal' },
+  bracing: { label: 'Plan Bracing', short: 'PB', depthDir: 'Vertical', rotDir: 'Horizontal' }
+};
+
+export const DECK_INFO: Record<DeckType, { label: string; thickness: number; density: number }> = {
+  concrete: { label: 'Concrete Slab (In Situ)', thickness: 150, density: 25 },
+  precast: { label: 'Precast Concrete Planks', thickness: 125, density: 25 },
+  frp: { label: 'FRP Deck Panels', thickness: 60, density: 4.5 },
+  timber: { label: 'Timber Boards', thickness: 75, density: 9 },
+  steel: { label: 'Steel Plate', thickness: 10, density: 77 }
+};
+
+const sec = (category: GroupSection['category'], name: string, grade: string, rotate = false): GroupSection => ({ category, name, grade, rotate });
+const des = (method: LeMethod, kMajor = 1, kMinor = 1, kLtb = 1): GroupDesign => ({ method, kMajor, kMinor, kLtb });
+
+export const DEFAULT_COMBOS: Combination[] = [
+  { name: 'Dead + Pedestrian', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 0, deflection: false },
+  { name: 'Dead + Pedestrian + Barrier', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 1.0, deflection: false },
+  { name: 'Dead + Wind', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 0, w: 1.0, b: 0, deflection: false },
+  { name: 'Dead (Min) + Wind', type: 'ULS', g1s: 0.9, g1d: 0.85, g2: 0.7, q: 0, w: 1.0, b: 0, deflection: false },
+  { name: 'Pedestrian', type: 'SLS', g1s: 0, g1d: 0, g2: 0, q: 1.0, w: 0, b: 0, deflection: true },
+  { name: 'Dead + Pedestrian', type: 'SLS', g1s: 1, g1d: 1, g2: 1, q: 1.0, w: 0, b: 0, deflection: false },
+  { name: 'Dead + Wind', type: 'SLS', g1s: 1, g1d: 1, g2: 1, q: 0, w: 1.0, b: 0, deflection: false }
+];
+
+export const DEFAULT_INPUT: BridgeInput = {
+  span: 30,
+  trussType: 'pratt',
+  warrenVerticals: true,
+  panelTarget: 2.5,
+  depth: 1.6,
+  clearWidth: 3.0,
+  handrailWidth: 100,
+  cgTopOffset: 0,
+  bracing: 'x',
+  webPinned: false,
+  bracingPinned: true,
+  deckType: 'concrete',
+  deckThickness: 150,
+  deckDensity: 25,
+  surfacing: 0.5,
+  screens: true,
+  screenHeight: 2.4,
+  screenLoad: 0.15,
+  screenSolidity: 0.4,
+  handrailHeight: 1.1,
+  handrailLoad: 0.1,
+  services: 0.5,
+  finish: 'galvanised',
+  sections: {
+    topChord: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
+    bottomChord: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
+    endPost: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
+    vertical: sec('SHS', '200×200×9.0 SHS', 'Grade C350L0'),
+    diagonal: sec('SHS', '150×150×6.0 SHS', 'Grade C350L0'),
+    crossGirder: sec('UB', '360 UB 50.7', 'Grade 300'),
+    bracing: sec('CHS', '88.9×4.0 CHS', 'Grade C350L0')
+  },
+  connectionAllowance: 5,
+  pedestrian: 5.0,
+  patterns: true,
+  windUls: 45,
+  windSls: 30,
+  dragCoeff: 2.0,
+  liftCoeff: 0.75,
+  barrier: 1.5,
+  restraintPct: 2.5,
+  combos: DEFAULT_COMBOS,
+  design: {
+    topChord: des('buckling'),
+    bottomChord: des('buckling'),
+    endPost: des('buckling'),
+    vertical: des('buckling'),
+    diagonal: des('buckling'),
+    crossGirder: des('factor', 1, 1, 1),
+    bracing: des('factor')
+  },
+  amplify: true,
+  bucklingModes: 8,
+  elementsPerMember: 4,
+  participation: 10,
+  deflLimit: 600,
+  freqVertMin: 1.5,
+  freqVertMax: 3.5,
+  freqLatMin: 1.3,
+  modalQ: 0
+};
