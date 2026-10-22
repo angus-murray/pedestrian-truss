@@ -161,7 +161,7 @@ export const DEFAULT_INPUT: BridgeInput = {
     endPost: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
     vertical: sec('SHS', '200×200×9.0 SHS', 'Grade C350L0'),
     diagonal: sec('SHS', '150×150×6.0 SHS', 'Grade C350L0'),
-    crossGirder: sec('UB', '360 UB 50.7', 'Grade 300'),
+    crossGirder: sec('SHS', '200×200×9.0 SHS', 'Grade C350L0'),
     stringer: sec('UB', '150 UB 18.0', 'Grade 300'),
     bracing: sec('CHS', '88.9×4.0 CHS', 'Grade C350L0')
   },
