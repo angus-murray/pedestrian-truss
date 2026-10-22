@@ -95,6 +95,8 @@ export interface SlsResult {
   maxLat: number; // m
   node: number;
   limit: number | null; // m
+  /** Stringers: largest deflection relative to the cross girders (the chord between the span ends), limit a / x. */
+  stringer: { maxRel: number; member: number; limit: number } | null;
 }
 
 export interface AnalysisResults {
@@ -283,18 +285,38 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
 
   // ---------------------------------------------------------- serviceability
   const sls: SlsResult[] = [];
+  // the truss deflection excludes the stringers between their supports (checked on their own below)
+  const stringerOnly = new Uint8Array(nNodes);
+  for (const m of model.members) if (m.group === 'stringer') for (const nd of m.nodes.slice(1, -1)) stringerOnly[nd] = 1;
+  const stringers = model.members.filter((m) => m.group === 'stringer');
   combos.forEach((c, ci) => {
     if (c.type !== 'SLS') return;
     let maxVert = 0, maxLat = 0, nodeAt = 0;
     const u = disp[ci];
+    let stringer: SlsResult['stringer'] = null;
+    if (c.deflection && stringers.length) {
+      stringer = { maxRel: 0, member: stringers[0].id, limit: model.geo.a / input.deflLimit };
+      for (const m of stringers) {
+        const za = u[m.nodes[0] * 6 + 2], zb = u[m.nodes[m.nodes.length - 1] * 6 + 2];
+        m.nodes.forEach((nd, i) => {
+          const f = m.stations[i];
+          const rel = za + f * (zb - za) - u[nd * 6 + 2];
+          if (rel > stringer!.maxRel) stringer = { ...stringer!, maxRel: rel, member: m.id };
+        });
+      }
+    }
     for (let nd = 0; nd < nNodes; nd++) {
+      if (stringerOnly[nd]) {
+        maxLat = Math.max(maxLat, Math.abs(u[nd * 6 + 1]));
+        continue;
+      }
       if (-u[nd * 6 + 2] > maxVert) {
         maxVert = -u[nd * 6 + 2];
         nodeAt = nd;
       }
       maxLat = Math.max(maxLat, Math.abs(u[nd * 6 + 1]));
     }
-    sls.push({ combo: ci, maxVert, maxLat, node: nodeAt, limit: c.deflection ? input.span / input.deflLimit : null });
+    sls.push({ combo: ci, maxVert, maxLat, node: nodeAt, limit: c.deflection ? input.span / input.deflLimit : null, stringer });
   });
 
   for (const b of buckling) {

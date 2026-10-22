@@ -28,7 +28,7 @@ export interface Summary {
 export function summarise(model: BridgeModel, r: AnalysisResults, input: BridgeInput): Summary {
   const maxUtil = r.design.reduce((m, d) => Math.max(m, d.util), 0);
   const failing = r.design.filter((d) => d.util > 1 + 1e-9).sort((a, b) => b.util - a.util).map((d) => ({ name: model.members[d.member].name, util: d.util }));
-  const deflOk = r.sls.every((s) => s.limit === null || s.maxVert <= s.limit + 1e-9);
+  const deflOk = r.sls.every((s) => (s.limit === null || s.maxVert <= s.limit + 1e-9) && (!s.stringer || s.stringer.maxRel <= s.stringer.limit + 1e-9));
   const lambdaMin = r.buckling.reduce<number | null>((m, b) => (b.values.length ? Math.min(m ?? Infinity, b.values[0]) : m), null);
   const fv = r.modal.freqs.find((_, i) => r.modal.kinds[i] === 'Vertical') ?? null;
   const fl = r.modal.freqs.find((_, i) => r.modal.kinds[i] === 'Lateral') ?? null;
@@ -269,7 +269,7 @@ const KV: React.FC<{ k: React.ReactNode; v: React.ReactNode }> = ({ k, v }) => (
   </tr>
 );
 
-const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; input: BridgeInput }> = ({ r, input }) => (
+const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; input: BridgeInput }> = ({ model, r, input }) => (
   <section className="panel">
     <div className="panel-header">
       <h2 className="text-[13px] font-bold text-slate-800">Serviceability</h2>
@@ -300,7 +300,40 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
             ))}
           </tbody>
         </table>
-        <p className="text-[11px] text-slate-500 mt-1">Deflection limit span / {input.deflLimit}. The dead load deflection indicates the precamber.</p>
+        <p className="text-[11px] text-slate-500 mt-1">Deflection limit span / {input.deflLimit}, excluding the stringers. The dead load deflection indicates the precamber.</p>
+        {r.sls.some((s) => s.stringer) && (
+          <>
+            <h3 className="card-title mt-2 mb-1">Stringer Deflection (Relative to Cross Girders)</h3>
+            <table className="rtable">
+              <Cols w={[40, 18, 16, 14, 12]} />
+              <thead>
+                <tr>
+                  <th>Combination</th>
+                  <th>Deflection (mm)</th>
+                  <th>Stringer</th>
+                  <th>Limit (mm)</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.sls
+                  .filter((s) => s.stringer)
+                  .map((s) => (
+                    <tr key={s.combo}>
+                      <td className="!text-left">{comboLabel(r.combos[s.combo])}</td>
+                      <td>{f1(s.stringer!.maxRel * 1000)}</td>
+                      <td>{model.members[s.stringer!.member].name}</td>
+                      <td>{f1(s.stringer!.limit * 1000)}</td>
+                      <td>
+                        <PassFail pass={s.stringer!.maxRel <= s.stringer!.limit + 1e-9} />
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+            <p className="text-[11px] text-slate-500 mt-1">Deflection of each stringer span from the line between its supports on the cross girders; limit panel length / {input.deflLimit}.</p>
+          </>
+        )}
       </div>
       <div>
         <h3 className="card-title mb-1">Natural Frequencies</h3>

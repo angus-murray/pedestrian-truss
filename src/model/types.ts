@@ -146,7 +146,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   stringerCount: 4,
   stringerSpacing: 0.9,
   screens: true,
-  screenHeight: 1.4,
+  screenHeight: 1.2,
   screenLoad: 0.15,
   screenSolidity: 0.4,
   handrails: 2,

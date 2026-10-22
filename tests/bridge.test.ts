@@ -37,3 +37,17 @@ test('midspan deflection is close to the truss estimate and buckling factors exc
   // web and shear deformation add to the chord-only estimate
   assert.ok(sls.maxVert > est && sls.maxVert < 1.6 * est, `${sls.maxVert} vs ${est}`);
 });
+
+test('stringer deflection relative to the cross girders matches 5wL⁴/384EI', () => {
+  const inp = { ...DEFAULT_INPUT, deckType: 'frp' as const, deckThickness: 38, deckDensity: 6, stringers: true };
+  const { model: m, results: r } = runAnalysis(inp);
+  const s = r.sls.find((x) => x.stringer)!.stringer!;
+  const st = m.members.find((x) => x.group === 'stringer')!;
+  const w = inp.pedestrian * inp.stringerSpacing, L = m.geo.a;
+  const exact = (5 * w * L ** 4) / (384 * 200e6 * st.sp.Ix * 1e-12);
+  assert.ok(Math.abs(s.maxRel / exact - 1) < 0.02, `${s.maxRel} vs ${exact}`);
+  assert.equal(s.limit, L / inp.deflLimit);
+  // deck soffit at the cross girder top, stringer tops level with it
+  assert.equal(m.geo.deckSoffit, m.geo.cgTop);
+  assert.ok(Math.abs(m.geo.zST + m.geo.dST / 2 - m.geo.cgTop) < 1e-9);
+});

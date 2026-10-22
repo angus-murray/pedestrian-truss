@@ -435,6 +435,18 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
       ...r.sls.map((s) => ({ cells: [comboLabel(r.combos[s.combo]), f1(s.maxVert * 1000), f1(s.maxLat * 1000), s.limit !== null ? `${f1(s.limit * 1000)} ${passFail(s.maxVert <= s.limit + 1e-9)}` : '—'] }))
     ]
   );
+  if (r.sls.some((s) => s.stringer)) {
+    subheading('Stringer deflection relative to the cross girders', `Limit panel length / ${input.deflLimit}`);
+    table(
+      [46, 18, 18, 18],
+      [
+        { cells: ['Combination', 'Deflection (mm)', 'Stringer', 'Limit (mm)'], kind: 'head' },
+        ...r.sls
+          .filter((s) => s.stringer)
+          .map((s) => ({ cells: [comboLabel(r.combos[s.combo]), f1(s.stringer!.maxRel * 1000), model.members[s.stringer!.member].name, `${f1(s.stringer!.limit * 1000)} ${passFail(s.stringer!.maxRel <= s.stringer!.limit + 1e-9)}`] }))
+      ]
+    );
+  }
   subheading('Natural frequencies');
   table(
     [20, 30, 50],

@@ -135,9 +135,10 @@ export function buildModel(input: BridgeInput): BridgeModel {
   if (Math.abs(zCG) < 0.002) zCG = 0;
   const stringerYs = stringerPositions(input);
   const dST = stringerYs.length ? vdim(sp.stringer, !secs.stringer.rotate) : 0;
-  const zST = cgTop + dST / 2;
+  // stringers framed between the cross girders with their tops level with the cross girder tops
+  const zST = cgTop - dST / 2;
   const deckT = input.deckThickness / 1000;
-  const deckSoffit = cgTop + dST;
+  const deckSoffit = cgTop;
   const deckTop = deckSoffit + deckT;
   const deckWidth = s - chordWidth;
   const verticals = input.trussType !== 'warren';
@@ -277,7 +278,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
     });
     addMember(`CG${k}`, 'crossGirder', null, k, cgEnd[0][k], cgEnd[1][k], secs.crossGirder.rotate ? Xd : Z, { extra: stringerYs.map((y) => (y + s / 2) / s) });
   }
-  // stringers: simply supported on the cross girders, modelled on the cross girder axis (drawn seated on top);
+  // stringers: simply supported on the cross girders, modelled on the cross girder axis (drawn with their tops
+  // level with the cross girder tops);
   // bending released at both ends and axial force released at one end, so they take no load from the chords
   if (stringerYs.length) {
     const seat = stringerYs.map((y) => Array.from({ length: n + 1 }, (_, k) => node(X(k), y, zCG)));

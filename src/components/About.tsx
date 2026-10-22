@@ -39,7 +39,7 @@ export const AboutPage: React.FC = () => (
           <>Cross girders span between the bottom chord panel points of the two trusses. When the cross girder is raised or dropped relative to the bottom chord, it is connected to the chord node by a rigid link. Plan bracing connects the cross girder ends.</>,
           <>Each member is divided into the chosen number of beam elements (Euler–Bernoulli, 6 DOF per node, shear deformation neglected) so that the buckling analysis captures buckling of individual members between nodes. Section properties are computed from the nominal outlines (root radii of hot-rolled sections; corner radii 2.5<S s="t" /> outside and 1.5<S s="t" /> inside of cold-formed hollow sections). <S s="E" /> = 200,000 MPa, <S s="G" /> = 80,000 MPa.</>,
           <>Bearings at the bottom chord ends: both left bearings fixed longitudinally, the truss A bearings guided laterally, all bearings restrained vertically, rotations free.</>,
-          <>Stringers (optional) span longitudinally between the cross girders and sit on them; they are modelled on the cross girder axis, so the height of the stringer load above the cross girder centroid (a small destabilising effect on cross girder torsion) is not included. Each stringer span is simply supported: bending is released at both ends and axial force at one end, so the stringers carry the deck and pedestrian loads but take no tension from the truss chords.</>,
+          <>Stringers (optional) span longitudinally between the cross girders, framed between them with their tops level with the cross girder tops, and the deck bears on both. They are modelled on the cross girder axis. Each stringer span is simply supported: bending is released at both ends and axial force at one end, so the stringers carry the deck and pedestrian loads but take no tension from the truss chords.</>,
           <>The deck is non-structural: it spans one way between the cross girders (or across between the stringers) and is not composite with them, and it provides no diaphragm action (the plan bracing does).</>
         ]}
       />
@@ -115,7 +115,8 @@ export const AboutPage: React.FC = () => (
     <Panel title="Serviceability">
       <Bullets
         items={[
-          <>Vertical deflection under the SLS combinations marked for the deflection check (by default, pedestrian load alone) against span / limit. The dead load deflection is reported for the precamber.</>,
+          <>Vertical deflection of the trusses and cross girders under the SLS combinations marked for the deflection check (by default, pedestrian load alone) against span / limit. The dead load deflection is reported for the precamber.</>,
+          <>Stringers: in the same combinations, the deflection of each stringer span relative to the cross girders (from the straight line between its two supports) against panel length / limit.</>,
           <>Natural frequencies: a first vertical frequency between the minimum and maximum, or a first lateral frequency below the minimum, is reported as needing a dynamic assessment of pedestrian-induced vibration (limits are inputs; the defaults follow AS 5100.2).</>
         ]}
       />

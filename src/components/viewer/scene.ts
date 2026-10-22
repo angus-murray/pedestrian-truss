@@ -52,9 +52,10 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   for (const m of model.members) {
     const [cutA, cutB] = memberCuts(model, m);
     let [a, b] = m.group === 'topChord' || m.group === 'bottomChord' ? chordExtents(model, m) : [m.a, m.b];
-    // stringers are analysed on the cross girder axis and drawn seated on the cross girders
+    // stringers are analysed on the cross girder axis and drawn with their tops level with the cross girder tops
+    // (1 mm lower, so the coincident top faces do not flicker)
     if (m.group === 'stringer') {
-      const dz = geo.zST - geo.zCG;
+      const dz = geo.zST - geo.zCG - 0.001;
       a = [a[0], a[1], a[2] + dz];
       b = [b[0], b[1], b[2] + dz];
     }

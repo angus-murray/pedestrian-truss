@@ -144,8 +144,11 @@ export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, Cut
       return { p: [p[0] + dir * half, 0, 0], n: [1, 0, 0] };
     }
     if (m.group === 'stringer') {
+      // framed into the cross girder web (the top flange passes into the cross girder flange, as a coped end)
+      const cg = model.members.find((x) => x.group === 'crossGirder')!;
+      const half = (model.input.sections.crossGirder.rotate ? cg.sp.def.flangeThick : cg.sp.def.webThick) / 2000 + 0.004;
       const dir = Math.sign((m.a[0] + m.b[0]) / 2 - p[0]);
-      return { p: [p[0] + dir * 0.006, 0, 0], n: [1, 0, 0] };
+      return { p: [p[0] + dir * half, 0, 0], n: [1, 0, 0] };
     }
     return null;
   };
