@@ -138,10 +138,9 @@ export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, Cut
       return { p: [0, y * Math.sign(p[1]), 0], n: [0, 1, 0] };
     }
     if (m.group === 'bracing') {
-      const cg = model.members.find((x) => x.group === 'crossGirder')!;
-      const half = (model.input.sections.crossGirder.rotate ? cg.sp.d : cg.sp.b) / 2000 + 0.03;
+      // drawn below the cross girders: the ends stop on the gusset plates
       const dir = Math.sign((m.a[0] + m.b[0]) / 2 - p[0]);
-      return { p: [p[0] + dir * half, 0, 0], n: [1, 0, 0] };
+      return { p: [p[0] + dir * 0.12, 0, 0], n: [1, 0, 0] };
     }
     if (m.group === 'stringer') {
       // framed into the cross girder (an open section's top flange passes into its flange, as a coped end)

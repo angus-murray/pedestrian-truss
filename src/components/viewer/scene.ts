@@ -23,6 +23,16 @@ export interface BridgeObjects {
   dispose: () => void;
 }
 
+const GUSSET_T = 0.012;
+/** Underside of the lowest of the bottom chords and cross girders, where the bracing gussets are fixed. */
+const gussetTop = (model: BridgeModel) => Math.min(-model.geo.dBC / 2, model.geo.zCG - model.geo.dCG / 2);
+/** Level at which the plan bracing is drawn: just below the gussets. */
+function bracingZ(model: BridgeModel) {
+  const br = model.members.find((m) => m.group === 'bracing');
+  const d = br ? (Math.abs(br.depthDir[2]) > 0.5 ? br.sp.d : br.sp.b) / 1000 : 0;
+  return gussetTop(model) - GUSSET_T - d / 2;
+}
+
 /** Ground level under the bridge (m): a clearance of 4 m below the abutment headstocks. */
 export const groundLevel = (model: BridgeModel) => -model.geo.dBC / 2 - 0.22 - 1.0 - 4.0;
 
@@ -52,6 +62,12 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   for (const m of model.members) {
     const [cutA, cutB] = memberCuts(model, m);
     let [a, b] = m.group === 'topChord' || m.group === 'bottomChord' ? chordExtents(model, m) : [m.a, m.b];
+    // plan bracing is analysed at the cross girder ends and drawn below the cross girders and stringers
+    if (m.group === 'bracing') {
+      const dz = bracingZ(model) - m.a[2];
+      a = [a[0], a[1], a[2] + dz];
+      b = [b[0], b[1], b[2] + dz];
+    }
     // stringers are analysed on the cross girder axis and drawn with their tops level with the cross girder tops
     // (1 mm lower, so the coincident top faces do not flicker)
     if (m.group === 'stringer') {
@@ -77,13 +93,13 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
         add(membersGroup, boxBetween(k * geo.a - cgW / 2 - 0.01, k * geo.a + cgW / 2 + 0.01, y - sg * 0.016, y, geo.zCG - geo.dCG / 2 - 0.01, geo.cgTop), steel);
       }
 
-  // plan bracing gussets under the cross girder ends
+  // plan bracing gussets under the cross girder ends, on top of the bracing
   if (input.bracing !== 'none') {
-    const z = geo.zCG;
+    const zt = gussetTop(model);
     for (let k = 0; k <= geo.n; k++)
       for (const sg of [-1, 1]) {
-        const y0 = sg * (geo.s / 2 - geo.wBC / 2), y1 = sg * (geo.s / 2 - geo.wBC / 2 - 0.35);
-        add(membersGroup, boxBetween(k * geo.a - (k === 0 ? 0 : 0.32), k * geo.a + (k === geo.n ? 0 : 0.32), Math.min(y0, y1), Math.max(y0, y1), z - 0.006, z + 0.006), steel);
+        const y0 = sg * (geo.s / 2 + geo.wBC / 2), y1 = sg * (geo.s / 2 - geo.wBC / 2 - 0.35);
+        add(membersGroup, boxBetween(k * geo.a - (k === 0 ? 0.1 : 0.4), k * geo.a + (k === geo.n ? 0.1 : 0.4), Math.min(y0, y1), Math.max(y0, y1), zt - GUSSET_T, zt), steel);
       }
   }
 
