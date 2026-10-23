@@ -123,6 +123,16 @@ export const AboutPage: React.FC = () => (
       />
     </Panel>
 
+    <Panel title="Section Optimiser">
+      <Bullets
+        items={[
+          <>The geometry, loads, section types and grades are kept. Each iteration analyses the bridge, then for each member group re-checks every member with each section of the same type, using the member actions of that analysis (the elastic buckling load scaled by the change in the smaller second moment of area), and selects the lightest section with a utilisation of at most 90%; when none reaches it, the section with the lowest utilisation.</>,
+          <>Serviceability is estimated from the same analysis: the truss stiffness from the chord areas (<S s="k" /> ∝ <S s="A" /><sub>t</sub><S s="A" /><sub>b</sub>/(<S s="A" /><sub>t</sub> + <S s="A" /><sub>b</sub>)), the deflection ∝ 1/<S s="k" />, <S s="f" /><sub>0</sub> ∝ √(<S s="k" />/<S s="M" />), the acceleration ∝ 1/<S s="M" /> (as <S s="f" /><sub>0</sub><sup>2</sup><S s="y" /> does not depend on the stiffness), and the stringer deflection ∝ 1/<S s="I" /><sub>x</sub>. Chord and stringer sizes are chosen to keep these within 95% of their limits.</>,
+          <>Up to four iterations; a group that alternates between two sizes is held at the heavier. If the design still fails a strength, deflection or vibration check, up to two further iterations upsize (never downsize) the groups concerned. The model is then solved with the selected sections.</>
+        ]}
+      />
+    </Panel>
+
     <Panel title="Not Covered">
       <Bullets
         items={[

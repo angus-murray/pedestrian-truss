@@ -218,7 +218,7 @@ export const InputPanels: React.FC<{
           className="btn w-full"
           onClick={onOptimise}
           disabled={solving || model.errors.length > 0}
-          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most 90% (and the chords stiff enough for the deflection limit), in up to four analysis iterations. The model is then solved."
+          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most 90%, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails). The model is then solved."
         >
           <Wand2 className="w-3.5 h-3.5" />
           Optimise Sections (90% Target)
