@@ -636,7 +636,10 @@ export function designMember(
     const Nabs = Math.abs(N);
     const deltaX = compression && input.amplify ? 1 / Math.max(1e-3, 1 - Nabs / NomMajor) : 1;
     const deltaY = compression && input.amplify ? 1 / Math.max(1e-3, 1 - Nabs / NomMinor) : 1;
-    const MxD = Mx * deltaX, MyD = My * deltaY;
+    // δ amplifies the moment between the member ends (taken at mid-length); the end moments, from joint
+    // continuity, are held by the joints and enter unamplified: the design moment is the larger of the two
+    const MxD = Math.max(Mx, deltaX * Math.abs(interp(m, sf, 4, 0.5)));
+    const MyD = Math.max(My, deltaY * Math.abs(interp(m, sf, 5, 0.5)));
 
     // major-axis member moment capacity
     const q = (f: number) => Math.abs(interp(m, sf, 4, f));
