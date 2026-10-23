@@ -175,14 +175,16 @@ interface Element {
   t: number;
   n: number;
   edges: 'one' | 'both' | 'chs';
+  /** Yield stress of the element itself (MPa), from its own thickness. */
+  fy: number;
 }
-const lambdaE = (e: Element, fy: number) => (e.edges === 'chs' ? (e.b / e.t) * (fy / 250) : (e.b / e.t) * Math.sqrt(fy / 250));
+const lambdaE = (e: Element) => (e.edges === 'chs' ? (e.b / e.t) * (e.fy / 250) : (e.b / e.t) * Math.sqrt(e.fy / 250));
 
-function effectiveModulus(Z: number, S: number, comp: { e: Element; sup: Support }[], fy: number, res: Residual) {
+function effectiveModulus(Z: number, S: number, comp: { e: Element; sup: Support }[], res: Residual) {
   let gov: { ls: number; lsp: number; lsy: number; sup: Support } | null = null;
   for (const { e, sup } of comp) {
     const [lsp, lsy] = BEND[sup][res];
-    const ls = lambdaE(e, fy);
+    const ls = lambdaE(e);
     if (!gov || ls / lsy > gov.ls / gov.lsy) gov = { ls, lsp, lsy, sup };
   }
   const Zc = Math.min(S, 1.5 * Z);
@@ -209,6 +211,7 @@ export function sectionProps(spec: SectionSpec): SectionProps {
   const els: Record<string, Element> = {};
   let J = 0, Iw = 0, alphaB = 0;
   let AwY = 0, dpY = 0, twY = 1, AwX = 0, dpX = 0, twX = 1;
+  let fyVY = 0, fyVX = 0; // yield stress of the elements resisting each shear
   let tMax = Math.max(tf, tw);
 
   if (def.category === 'UB' || def.category === 'UC') {
@@ -224,11 +227,12 @@ export function sectionProps(spec: SectionSpec): SectionProps {
         [-b / 2, -yi]
       ]
     });
-    els.flange = { b: (b - tw) / 2, t: tf, n: 4, edges: 'one' };
-    els.web = { b: d - 2 * tf, t: tw, n: 1, edges: 'both' };
+    els.flange = { b: (b - tw) / 2, t: tf, n: 4, edges: 'one', fy: grade.fy(tf) };
+    els.web = { b: d - 2 * tf, t: tw, n: 1, edges: 'both', fy: grade.fy(tw) };
     J = (2 * b * tf ** 3 + (d - 2 * tf) * tw ** 3) / 3;
     AwY = d * tw; dpY = d - 2 * tf; twY = tw;
     AwX = 2 * b * tf; twX = tf;
+    fyVY = els.web.fy; fyVX = els.flange.fy;
   } else if (def.category === 'PFC') {
     kind = 'PFC';
     const yi = d / 2 - tf;
@@ -236,18 +240,19 @@ export function sectionProps(spec: SectionSpec): SectionProps {
       sign: 1,
       pts: [[0, -d / 2], [b, -d / 2], [b, -yi], ...arc(tw + r, -yi + r, r, 270, 180), ...arc(tw + r, yi - r, r, 180, 90), [b, yi], [b, d / 2], [0, d / 2]]
     });
-    els.flange = { b: b - tw, t: tf, n: 2, edges: 'one' };
-    els.web = { b: d - 2 * tf, t: tw, n: 1, edges: 'both' };
+    els.flange = { b: b - tw, t: tf, n: 2, edges: 'one', fy: grade.fy(tf) };
+    els.web = { b: d - 2 * tf, t: tw, n: 1, edges: 'both', fy: grade.fy(tw) };
     J = (2 * b * tf ** 3 + (d - 2 * tf) * tw ** 3) / 3;
     alphaB = 0.5;
     AwY = d * tw; dpY = d - 2 * tf; twY = tw;
     AwX = 2 * b * tf; twX = tf;
+    fyVY = els.web.fy; fyVX = els.flange.fy;
   } else if (def.category === 'CHS') {
     kind = 'CHS';
     res = 'CF';
     const D = def.outerDiameter ?? d, t = def.wallThick ?? tw;
     shapes.push({ sign: 1, pts: circle(D / 2, 64) }, { sign: -1, pts: circle(D / 2 - t, 64) });
-    els.chs = { b: D, t, n: 1, edges: 'chs' };
+    els.chs = { b: D, t, n: 1, edges: 'chs', fy: grade.fy(t) };
     J = (Math.PI / 2) * ((D / 2) ** 4 - (D / 2 - t) ** 4);
     alphaB = -0.5;
     tMax = t;
@@ -256,8 +261,8 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     res = 'CF';
     const t = def.wallThick ?? tw;
     shapes.push({ sign: 1, pts: roundedRect(b, d, 2.5 * t) }, { sign: -1, pts: roundedRect(b - 2 * t, d - 2 * t, 1.5 * t) });
-    els.sideX = { b: b - 2 * t, t, n: 2, edges: 'both' };
-    els.sideY = { b: d - 2 * t, t, n: 2, edges: 'both' };
+    els.sideX = { b: b - 2 * t, t, n: 2, edges: 'both', fy: grade.fy(t) };
+    els.sideY = { b: d - 2 * t, t, n: 2, edges: 'both', fy: grade.fy(t) };
     const rm = 2 * t;
     const Am = (b - t) * (d - t) - (4 - Math.PI) * rm * rm;
     const pm = 2 * (b - t + d - t) - (8 - 2 * Math.PI) * rm;
@@ -265,6 +270,7 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     alphaB = -0.5;
     AwY = 2 * (d - 2 * t) * t; dpY = d - 2 * t; twY = t;
     AwX = 2 * (b - 2 * t) * t; dpX = b - 2 * t; twX = t;
+    fyVY = fyVX = els.sideX.fy;
     tMax = t;
   }
 
@@ -274,13 +280,14 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     const bb = b - tw / 2, df = d - tf;
     Iw = ((tf * bb ** 3 * df ** 2) / 12) * ((3 * bb * tf + 2 * df * tw) / (6 * bb * tf + df * tw));
   }
-  const fy = Math.min(grade.fy(tf), grade.fy(tw));
+  // section capacities (N_s, M_s) use the lowest element yield stress; plate slenderness and shear use each element's own
+  const fy = Math.min(...Object.values(els).map((e) => e.fy));
   const fu = grade.fu;
 
   // form factor (Cl. 6.2.2, 6.2.4)
   let Ae = P.A;
   for (const e of Object.values(els)) {
-    const le = lambdaE(e, fy);
+    const le = lambdaE(e);
     const ley = COMP_EY[e.edges][res];
     if (e.edges === 'chs') Ae = P.A * Math.min(1, Math.sqrt(ley / le), (3 * ley / le) ** 2);
     else Ae -= e.n * (e.b - Math.min(e.b, e.b * (ley / le))) * e.t;
@@ -303,14 +310,14 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     casesX.push([{ e: els.chs, sup: 'chs' }]);
     casesY.push([{ e: els.chs, sup: 'chs' }]);
   }
-  const worst = (Z: number, S: number, cases: Comp[][]) => cases.map((c) => effectiveModulus(Z, S, c, fy, res)).reduce((a, x) => (x.Ze < a.Ze ? x : a));
+  const worst = (Z: number, S: number, cases: Comp[][]) => cases.map((c) => effectiveModulus(Z, S, c, res)).reduce((a, x) => (x.Ze < a.Ze ? x : a));
   const bx = worst(P.Zx, P.Sx, casesX), by = worst(P.Zy, P.Sy, casesY);
 
   // shear (Cl. 5.11)
-  const shearCap = (Aw: number, dp: number, t: number) => {
-    let Vw = 0.6 * fy * Aw;
+  const shearCap = (Aw: number, dp: number, t: number, fyw: number) => {
+    let Vw = 0.6 * fyw * Aw;
     if (dp > 0) {
-      const lw = (dp / t) * Math.sqrt(fy / 250);
+      const lw = (dp / t) * Math.sqrt(fyw / 250);
       if (lw > 82) Vw *= (82 / lw) ** 2;
     }
     return (PHI * Vw) / 1000;
@@ -318,8 +325,8 @@ export function sectionProps(spec: SectionSpec): SectionProps {
   let phiVy: number, phiVx: number;
   if (kind === 'CHS') phiVy = phiVx = (PHI * 0.36 * fy * P.A) / 1000;
   else {
-    phiVy = shearCap(AwY, dpY, twY);
-    phiVx = shearCap(AwX, dpX, twX);
+    phiVy = shearCap(AwY, dpY, twY, fyVY);
+    phiVx = shearCap(AwX, dpX, twX, fyVX);
   }
 
   // outline centred on the centroid
