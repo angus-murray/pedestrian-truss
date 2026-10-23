@@ -13,8 +13,41 @@
 import { sectionProps } from '../design/section';
 import { sectionsOf } from '../data/sections';
 import { designMember, runAnalysis } from './analysis';
-import { stringerFitError, transverseWidth, webWidthWarning } from './build';
-import { GROUPS, type BridgeInput, type GroupKey } from './types';
+import { effectiveSections, stringerFitError, transverseWidth } from './build';
+
+const isChord = (g: GroupKey) => g === 'topChord' || g === 'bottomChord';
+const isWeb = (g: GroupKey) => g === 'vertical' || g === 'diagonal';
+
+/** Outer size of a section (m): across the bridge for the chords and web members, otherwise the larger dimension. */
+function sizeOf(spec: GroupSection, g: GroupKey): number {
+  if (isChord(g)) return transverseWidth(spec, 'chord');
+  if (isWeb(g)) return transverseWidth(spec, 'web');
+  const sp = sectionProps(spec);
+  return Math.max(sp.d, sp.b) / 1000;
+}
+
+/**
+ * Ranking of the candidate sections: by mass, or (compact, the default) by mass × √(outer size), which prefers a
+ * more compact, thicker section to a wide thin one of similar mass and keeps the members proportionate.
+ */
+function cost(input: BridgeInput, spec: GroupSection, g: GroupKey): number {
+  return sectionProps(spec).mass * (input.optimiseCompact ? Math.sqrt(sizeOf(spec, g)) : 1);
+}
+
+/**
+ * The web members within the chord widths: no wider than the narrower chord, and at least minWebRatio × the wider
+ * chord (a Warren truss has no verticals).
+ */
+function proportionsOk(input: BridgeInput): boolean {
+  const s = effectiveSections(input);
+  const wt = transverseWidth(s.topChord, 'chord'), wb = transverseWidth(s.bottomChord, 'chord');
+  const webs: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : ['vertical', 'diagonal'];
+  return webs.every((g) => {
+    const w = transverseWidth(s[g], 'web');
+    return w <= Math.min(wt, wb) + 1e-6 && w >= input.minWebRatio * Math.max(wt, wb) - 1e-6;
+  });
+}
+import { GROUPS, type BridgeInput, type GroupKey, type GroupSection } from './types';
 
 export interface OptimiseResult {
   sections: BridgeInput['sections'];
@@ -79,11 +112,16 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
       const spec = cur.sections[g];
       const old = sectionProps(spec);
       const chord = g === 'topChord' || g === 'bottomChord';
-      const cands = sectionsOf(spec.category).slice().sort((a, b) => a.massPerMetre - b.massPerMetre);
-      // lightest section at or below the target; failing that, the one with the lowest utilisation
+      const costOf = (name: string) => cost(cur, { ...spec, name }, g);
+      const cands = sectionsOf(spec.category)
+        .map((c) => ({ name: c.name, cost: costOf(c.name) }))
+        .sort((a, b) => a.cost - b.cost);
+      // first section in order of cost (mass, or mass × size) at or below the target; failing that, the one with
+      // the lowest utilisation
       let pick: string | null = null, bestU = Infinity, bestName = spec.name;
       const webGroup = g === 'vertical' || g === 'diagonal';
       const chordWidth = Math.min(transverseWidth(next.topChord, 'chord'), transverseWidth(next.bottomChord, 'chord'));
+      const chordWidthMax = Math.max(transverseWidth(next.topChord, 'chord'), transverseWidth(next.bottomChord, 'chord'));
       let narrowestOk = Infinity, narrowestBest = { w: 0, u: Infinity };
       let pickWhy = '', bestWhy = '', widthSkipped = false;
       for (const c of cands) {
@@ -124,7 +162,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
           // the width the chords need for this web group, whether or not the present chords provide it
           if (u <= target) narrowestOk = Math.min(narrowestOk, width);
           if (u < narrowestBest.u) narrowestBest = { w: width, u };
-          if (width > chordWidth + 1e-6) continue;
+          if (width > chordWidth + 1e-6 || width < cur.minWebRatio * chordWidthMax - 1e-6) continue;
         }
         if (u <= target) {
           pick = c.name;
@@ -205,17 +243,17 @@ function trim(input: BridgeInput, analysed: ReturnType<typeof runAnalysis> | nul
   for (const g of groups) {
     const spec = cur.sections[g];
     if (!base.model.members.some((m) => m.group === g)) continue;
-    const massOf = (name: string) => sectionProps({ ...spec, name }).mass;
+    const costOf = (name: string) => cost(cur, { ...spec, name }, g);
     const lighter = sectionsOf(spec.category)
-      .map((c) => ({ name: c.name, mass: massOf(c.name) }))
-      .filter((c) => c.mass < massOf(spec.name) - 1e-6)
-      .sort((a, b) => b.mass - a.mass);
+      .map((c) => ({ name: c.name, cost: costOf(c.name) }))
+      .filter((c) => c.cost < costOf(spec.name) - 1e-9)
+      .sort((a, b) => b.cost - a.cost);
     let tries = 0;
     for (const c of lighter) {
       if (tries >= TRIM_TRIES) break;
       const sections = { ...cur.sections, [g]: { ...spec, name: c.name } };
       const trial = { ...cur, sections };
-      if (stringerFitError(trial) || (webWidthWarning(trial) && !webWidthWarning(cur))) continue;
+      if (stringerFitError(trial) || (!proportionsOk(trial) && proportionsOk(cur))) continue;
       tries++;
       progress(`Refining: ${groupLabel(g)} ${c.name}`);
       const r = runAnalysis(trial);

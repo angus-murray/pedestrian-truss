@@ -226,12 +226,33 @@ export const InputPanels: React.FC<{
           step={5}
           title="The optimiser selects the lightest section of each group with a strength utilisation of at most this; deflection and vibration are kept within their limits"
         />
+        <div className="grid grid-cols-2 gap-2">
+          <SelectField
+            label="Optimiser Preference"
+            value={input.optimiseCompact ? 'compact' : 'mass'}
+            onChange={(v) => set('optimiseCompact', v === 'compact')}
+            options={[
+              { value: 'compact', label: 'Compact Sections' },
+              { value: 'mass', label: 'Least Mass' }
+            ]}
+          />
+          <NumberField
+            label="Min Web / Chord Width"
+            value={input.minWebRatio}
+            onChange={(v) => set('minWebRatio', v)}
+            min={0}
+            max={1}
+            step={0.05}
+            decimals={2}
+            title="The optimiser keeps the verticals and diagonals at least this fraction of the chord width across the bridge (and no wider than the chords), so that the members stay proportionate"
+          />
+        </div>
         <button
           type="button"
           className="btn w-full"
           onClick={onOptimise}
           disabled={solving || model.errors.length > 0}
-          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most the target, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails), with the verticals and diagonals no wider than the chords. Groups sized by deflection or vibration are then refined with full analyses. The model is then solved."
+          title="Keeps the geometry, loads, section types and grades, and selects for each group the most compact section for its mass (or the lightest) with a utilisation of at most the target, keeping the web members proportionate to the chords, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails), with the verticals and diagonals no wider than the chords. Groups sized by deflection or vibration are then refined with full analyses. The model is then solved."
         >
           <Wand2 className="w-3.5 h-3.5" />
           Optimise Sections ({input.optimiseTarget}% Target)

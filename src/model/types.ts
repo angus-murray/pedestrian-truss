@@ -111,6 +111,8 @@ export interface BridgeInput {
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
   optimiseTarget: number; // %, utilisation the section optimiser aims for
+  optimiseCompact: boolean; // optimiser ranks sections by mass × outer width (compact) rather than by mass
+  minWebRatio: number; // optimiser: web member width at least this × the chord width (0–1)
   maxSlenderness: number; // L/r limit of the truss members (AISC 360-16 D1 User Note: 300); 0 = not checked
 }
 
@@ -241,5 +243,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   freqLatMin: 1.5,
   modalQ: 0,
   optimiseTarget: 90,
+  optimiseCompact: true,
+  minWebRatio: 0.6,
   maxSlenderness: 300
 };
