@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppHeader, Modal, ReportDialog, today } from 'engineering-ui';
+import { AppHeader, Banner, Modal, ReportDialog, today } from 'engineering-ui';
 import { FolderOpen, RotateCcw, Save } from 'lucide-react';
-import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './model/types';
+import { DEFAULT_INPUT, type BridgeInput } from './model/types';
+import { loadInput, toSaved, type LoadedInput } from './model/migrate';
 import { buildModel } from './model/build';
 import type { OptimiseResult } from './model/optimise';
 import { useAnalysis } from './model/useAnalysis';
@@ -13,44 +14,25 @@ import { generateReport, REPORT_INFO_FIELDS, type ReportInfo } from './utils/rep
 
 const STORE = 'pedtruss-input-v5';
 
-/** Fills in any inputs missing from a saved file (older versions) with the defaults. */
-/** A saved combination equal to a superseded default becomes the current default; edited ones are kept. */
-function updateCombo(c: Combination): Combination {
-  const same = (a: Combination, b: Combination) => (Object.keys(a) as (keyof Combination)[]).every((k) => a[k] === b[k]);
-  return SUPERSEDED_COMBOS.find(([old]) => same(old, c))?.[1] ?? c;
-}
-
-function withDefaults(x: Partial<BridgeInput>): BridgeInput {
-  return {
-    ...DEFAULT_INPUT,
-    ...x,
-    sections: { ...DEFAULT_INPUT.sections, ...(x.sections ?? {}) },
-    design: { ...DEFAULT_INPUT.design, ...(x.design ?? {}) },
-    combos: x.combos?.length ? x.combos.map(updateCombo) : DEFAULT_INPUT.combos,
-    // spans are limited to 50 m (the range of the vibration dynamic response factor)
-    span: Math.min(50, x.span ?? DEFAULT_INPUT.span),
-    // 1.5 kN/m was the default barrier load of earlier versions
-    barrier: x.barrier === undefined || x.barrier === 1.5 ? DEFAULT_INPUT.barrier : x.barrier
-  };
-}
-
-function loadSaved(): BridgeInput {
+function loadSaved(): LoadedInput {
   try {
     const s = localStorage.getItem(STORE);
-    if (s) return withDefaults(JSON.parse(s));
+    if (s) return loadInput(JSON.parse(s));
   } catch {
     // storage blocked or invalid: defaults
   }
-  return DEFAULT_INPUT;
+  return { input: DEFAULT_INPUT, notes: [] };
 }
 
 /** PedTruss: design and checking of steel pony truss footbridges to AS 5100. */
 export default function App() {
-  const [input, setInput] = useState<BridgeInput>(loadSaved);
+  const [initial] = useState(loadSaved);
+  const [input, setInput] = useState<BridgeInput>(initial.input);
+  const [loadNotes, setLoadNotes] = useState<string[]>(initial.notes);
   const set = useCallback(<K extends keyof BridgeInput>(k: K, v: BridgeInput[K]) => setInput((p) => ({ ...p, [k]: v })), []);
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(input));
+      localStorage.setItem(STORE, JSON.stringify(toSaved(input)));
     } catch {
       // storage blocked: inputs are not remembered
     }
@@ -76,7 +58,7 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const saveFile = () => {
-    const blob = new Blob([JSON.stringify(input, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(toSaved(input), null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'pedtruss.json';
@@ -86,7 +68,9 @@ export default function App() {
   const openFile = (f: File) =>
     f.text().then((t) => {
       try {
-        setInput(withDefaults(JSON.parse(t)));
+        const loaded = loadInput(JSON.parse(t));
+        setInput(loaded.input);
+        setLoadNotes(loaded.notes);
       } catch {
         alert('The file could not be read.');
       }
@@ -115,6 +99,15 @@ export default function App() {
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans flex flex-col">
       <AppHeader name="PedTruss" onAbout={() => setShowAbout(true)} onReport={() => setShowReport(true)} actions={actions} />
       <main className="flex-1 max-w-7xl w-full mx-auto p-3">
+        {loadNotes.length > 0 && (
+          <div className="mb-3">
+            <Banner kind="warning" title="Saved inputs were updated on loading: please review" items={loadNotes}>
+              <button type="button" className="btn !h-7 mt-1" onClick={() => setLoadNotes([])}>
+                Dismiss
+              </button>
+            </Banner>
+          </div>
+        )}
         <div className="tab-grid">
           <fieldset className="input-column scroll-thin" disabled={solving} style={{ opacity: solving ? 0.6 : 1 }}>
             <InputPanels input={input} set={set} model={model} onOptimise={onOptimise} optimiseLog={optLog} solving={solving} results={results} />

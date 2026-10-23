@@ -24,7 +24,7 @@ export const AboutPage: React.FC = () => (
         Design and checking of steel pony (half-through) truss footbridges: two parallel trusses with a deck on cross girders at the bottom chord panel points. The
         top chords have no overhead bracing; they are restrained laterally only by the U-frames formed by the verticals and the cross girders. The app builds a 3D
         frame model from the inputs, runs linear static, elastic buckling and natural frequency analyses, and checks every member to AS 5100.6 for the strength
-        limit state, and the deflection and frequencies for the serviceability limit state.
+        limit state, and the deflections, frequencies and vertical acceleration for the serviceability limit state. A result of "Implemented Checks Satisfied" covers only the checks listed here: connections, fatigue and the other matters under Not Covered must be designed separately.
       </p>
     </section>
 
@@ -91,7 +91,7 @@ export const AboutPage: React.FC = () => (
             <b>Factor × length</b>: <S s="l" /><sub>e</sub> = <S s="k" /> <S s="L" /> about each axis, with <S s="L" /> the member length between nodes.
           </>,
           <>
-            <b>U-frame</b> (top chord only): the top chord as a strut on elastic supports at the U-frames (Engesser, as BS 5400-3 Cl. 9.6.4.1.3). For a vertical on a cross girder the U-frame flexibility is that of the vertical as a cantilever, the cross girder rotation with both ends loaded together (single curvature, conservative against double curvature, s d<sub>2</sub><sup>2</sup>/(6EI<sub>2</sub>)) and the joint flexibility <S s="f" />. In a Warren truss the U-frame at a top chord node is the two diagonals meeting there, each a cantilever of its inclined length <S s="L" /><sub>d</sub>, on two cross girders. As for all members, the lengths are taken between the nodes: <S s="d" /><sub>1</sub> = <S s="d" /><sub>2</sub> = <S s="H" /> (bottom chord node to top chord node) and <S s="L" /><sub>d</sub> = √(<S s="H" /><sup>2</sup> + (<S s="a" />/2)<sup>2</sup>). In-plane <S s="l" /><sub>e</sub> = <S s="k" /><sub>x</sub> <S s="L" />. The buckling analysis method needs none of these idealisations: the 3D model includes both directions of top chord buckling, multi-wave modes and the actual U-frame members and joints.
+            <b>U-frame</b> (top chord only): the top chord as a strut on elastic supports at the U-frames (Engesser, as BS 5400-3 Cl. 9.6.4.1.3). For a vertical on a cross girder the U-frame flexibility is that of the vertical as a cantilever, the cross girder rotation with both ends loaded together (inward forces at both top chords: the cross girder in single curvature under a uniform moment, end rotation <S s="M s" />/(2<S s="E I" /><sub>2</sub>), giving <S s="s d" /><sub>2</sub><sup>2</sup>/(2<S s="E I" /><sub>2</sub>); this is conservative against forces in the same direction, double curvature, <S s="s d" /><sub>2</sub><sup>2</sup>/(6<S s="E I" /><sub>2</sub>)) and the joint flexibility <S s="f" /> (<S s="f d" /><sub>2</sub><sup>2</sup>). In a Warren truss the U-frame at a top chord node is the two diagonals meeting there, each a cantilever of its inclined length <S s="L" /><sub>d</sub>, on two cross girders, so each diagonal takes half the force and each cross girder and joint carries half the moment (the 6, 4 and 2 below). As for all members, the lengths are taken between the nodes: <S s="d" /><sub>1</sub> = <S s="d" /><sub>2</sub> = <S s="H" /> (bottom chord node to top chord node) and <S s="L" /><sub>d</sub> = √(<S s="H" /><sup>2</sup> + (<S s="a" />/2)<sup>2</sup>). In-plane <S s="l" /><sub>e</sub> = <S s="k" /><sub>x</sub> <S s="L" />. The buckling analysis method needs none of these idealisations: the 3D model includes both directions of top chord buckling, multi-wave modes and the actual U-frame members and joints.
           </>
         ]}
       />
@@ -102,7 +102,7 @@ export const AboutPage: React.FC = () => (
         <S s="δ" /> = <S s="d" /><sub>1</sub><sup>3</sup> / (3<S s="E I" /><sub>1</sub>) + <S s="s d" /><sub>2</sub><sup>2</sup> / (2<S s="E I" /><sub>2</sub>) + <S s="f d" /><sub>2</sub><sup>2</sup>   (Warren: <S s="L" /><sub>d</sub><sup>3</sup> / (6<S s="E I" /><sub>1</sub>) + <S s="s d" /><sub>2</sub><sup>2</sup> / (4<S s="E I" /><sub>2</sub>) + <S s="f d" /><sub>2</sub><sup>2</sup>/2),   <S s="l" /><sub>e</sub> = 2.5 (<S s="E I" /><sub>c</sub> <S s="a δ" />)<sup>0.25</sup> ≥ <S s="a" />
       </Formula>
       <p>
-        <S s="d" /><sub>1</sub>: top chord centroid to the top of the cross girder; <S s="d" /><sub>2</sub>: top chord centroid to the cross girder centroid; <S s="I" /><sub>1</sub>, <S s="I" /><sub>2</sub>: vertical and cross girder second moments of area for U-frame bending; <S s="I" /><sub>c</sub>: top chord about its vertical axis; <S s="a" />: panel length.
+        <S s="d" /><sub>1</sub> = <S s="d" /><sub>2</sub> = <S s="H" />: height of the U-frame between the nodes (bottom chord node to top chord node; the cross girder frames into the bottom chord node); <S s="L" /><sub>d</sub> = √(<S s="H" /><sup>2</sup> + (<S s="a" />/2)<sup>2</sup>); <S s="s" />: truss spacing; <S s="I" /><sub>1</sub>, <S s="I" /><sub>2</sub>: vertical and cross girder second moments of area for U-frame bending; <S s="I" /><sub>c</sub>: top chord about its vertical axis; <S s="a" />: panel length.
       </p>
     </Panel>
 
@@ -152,7 +152,7 @@ export const AboutPage: React.FC = () => (
           'Connections (welds, bolted splices, cross girder end connections, bearing stiffeners), joint eccentricities and the local capacity of hollow section joints (chord face, punching shear).',
           'Fatigue, temperature, creep and shrinkage, earthquake, vehicle and maintenance vehicle loads, vehicle impact on the trusses, and flood loads.',
           'Design of the deck, screens and handrails, and composite action of the deck with the cross girders.',
-          'Second-order and imperfection analysis beyond the moment amplification; dynamic response to pedestrian loading (only the frequencies are checked).',
+          'Second-order and imperfection analysis beyond the moment amplification; dynamic response to pedestrian loading beyond the checks of AS 5100.2 Cl. 13.4 made here (the vertical acceleration under one pedestrian when the first vertical frequency is below 5 Hz, and the lateral frequency limit): crowd loading, lateral lock-in and response to running or vandal loading are not assessed.',
           'Tension-only plan bracing (rods): bracing members are beam elements that carry compression.'
         ]}
       />

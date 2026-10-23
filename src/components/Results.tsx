@@ -66,10 +66,10 @@ export const Results: React.FC<{
   else {
     const pass = !sum.failing.length && sum.deflOk && sum.vibOk;
     chip = pass ? (
-      <StatusChip kind="pass">PASS (Max Util: {pct(sum.maxUtil)})</StatusChip>
+      <StatusChip kind="pass">Implemented Checks Satisfied (Max Util: {pct(sum.maxUtil)})</StatusChip>
     ) : (
       <StatusChip kind="fail">
-        FAIL ({[...sum.failing.slice(0, 3).map((f) => `${f.name} ${pct(f.util)}`), ...(sum.deflOk ? [] : ['Deflection']), ...(sum.vibOk ? [] : ['Vibration'])].join(', ')}
+        Checks Not Satisfied ({[...sum.failing.slice(0, 3).map((f) => `${f.name} ${pct(f.util)}`), ...(sum.deflOk ? [] : ['Deflection']), ...(sum.vibOk ? [] : ['Vibration'])].join(', ')}
         {sum.failing.length > 3 ? ', …' : ''})
       </StatusChip>
     );
@@ -178,6 +178,26 @@ const GoverningTable: React.FC<{ model: BridgeModel; r: AnalysisResults; onSelec
   );
 };
 
+/** Where a member end is: the node position along the span and its level. */
+function endLabel(model: BridgeModel, m: BridgeModel['members'][number], end: 0 | 1): string {
+  const p = end ? m.b : m.a;
+  return `x = ${p[0].toFixed(2)} m, z = ${p[2].toFixed(2)} m`;
+}
+
+/** End condition of a member as analysed: from the releases and springs of its end element. */
+function endCondition(model: BridgeModel, m: BridgeModel['members'][number], end: 0 | 1): string {
+  const e = model.fe.elements[end ? m.elements[m.elements.length - 1] : m.elements[0]];
+  const released = end ? e.relJ : e.relI;
+  const spring = end ? e.springJ : e.springI;
+  const axial = end && e.relAxialJ ? ', axial released' : '';
+  if (released) return `Pinned (bending released${axial})`;
+  if (spring) {
+    const k = (v: number) => Math.round(v).toLocaleString('en-AU');
+    return `Semi-rigid, k = ${k(spring[0])} / ${k(spring[1])} kNm/rad (major / minor)${axial}`;
+  }
+  return `Rigid${axial}`;
+}
+
 const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: MemberDesign; onClose: () => void }> = ({ model, r, d, onClose }) => {
   const m = model.members[d.member];
   const sp = m.sp;
@@ -205,7 +225,8 @@ const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: Member
               <KV k={<><S s="f" sub="y" /> / <S s="k" sub="f" /></>} v={`${sp.fy} MPa / ${sp.kf.toFixed(3)}`} />
               <KV k={<><S s="Z" sub="ex" /> / <S s="Z" sub="ey" /></>} v={`${f0(sp.Zex / 1e3)} / ${f0(sp.Zey / 1e3)} × 10³ mm³ (${sp.classX}, ${sp.classY})`} />
               <KV k={<><S s="α" sub="b" /></>} v={f2(sp.alphaB)} />
-              <KV k="End Connections" v={m.relA || m.relB ? 'Pinned (bending released)' : 'Rigid'} />
+              <KV k={`End at ${endLabel(model, m, 0)}`} v={endCondition(model, m, 0)} />
+              <KV k={`End at ${endLabel(model, m, 1)}`} v={endCondition(model, m, 1)} />
               <KV k="Governing Combination" v={d.combo >= 0 ? comboLabel(r.combos[d.combo]) : '—'} />
             </tbody>
           </table>

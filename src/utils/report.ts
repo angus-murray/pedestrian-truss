@@ -284,14 +284,15 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   doc.setLineWidth(0.6);
   doc.rect(M, y, CW, 18, 'S');
   font('bold', 7.5, MUTED);
-  doc.text('ULS AND DEFLECTION CHECKS', M + 4, y + 6);
-  font('bold', 15, INK);
-  doc.text(passFail(pass), M + 4, y + 13.5);
+  doc.text('STRENGTH, DEFLECTION AND VIBRATION CHECKS IMPLEMENTED IN THIS APP', M + 4, y + 6);
+  font('bold', 13, INK);
+  doc.text(pass ? 'Implemented checks satisfied' : 'Checks not satisfied', M + 4, y + 13.5);
   font('normal', 7.5, MUTED);
   doc.text('Maximum member utilisation', M + CW - 4, y + 6, { align: 'right' });
   font('bold', 12, INK);
   doc.text(pct(sum.maxUtil), M + CW - 4, y + 13.5, { align: 'right' });
   y += 22;
+  paragraph('The checks cover member strength (AS 5100.6), deflection and vibration (AS 5100.2) as listed in this report. Connections, fatigue, bearings, the deck and the other matters listed as not covered are not checked and must be designed separately.', 8, MUTED);
   if (sum.failing.length) paragraph(`Members over 100%: ${sum.failing.map((f) => `${f.name} (${pct(f.util)})`).join(', ')}.`, 8.5, INK);
   if (!sum.deflOk) paragraph('A deflection exceeds its limit (vertical, horizontal or stringer).', 8.5, INK);
   if (!sum.vibOk) paragraph('The vertical acceleration under a pedestrian exceeds the AS 5100.2 Cl. 13.4 limit.', 8.5, INK);

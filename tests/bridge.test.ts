@@ -186,3 +186,22 @@ test('semi-rigid joints: the springs soften the structure; AS 5100.6 welded join
   // f = 0 is rigid
   assert.ok(Math.abs(lam('flex', 0) - rigid) < 1e-9);
 });
+
+test('loading saved inputs: versioned migrations, each change reported', async () => {
+  const { loadInput, toSaved, FILE_VERSION } = await import('../src/model/migrate');
+  // the current version is loaded unchanged, a deliberate 1.5 kN/m barrier load included
+  const cur = loadInput(toSaved({ ...DEFAULT_INPUT, barrier: 1.5 }));
+  assert.equal(cur.input.barrier, 1.5);
+  assert.deepEqual(cur.notes, []);
+  assert.equal(toSaved(DEFAULT_INPUT).fileVersion, FILE_VERSION);
+  // a file of version 1 with the old default barrier load: changed, and reported
+  const { fileVersion, maxSlenderness, ...old } = { ...toSaved(DEFAULT_INPUT), barrier: 1.5 };
+  void fileVersion;
+  void maxSlenderness;
+  const v1 = loadInput(old);
+  assert.equal(v1.input.barrier, DEFAULT_INPUT.barrier);
+  assert.ok(v1.notes.some((n) => n.includes('barrier load of 1.5 kN/m')));
+  // an input missing from the file takes its default, and is reported
+  assert.equal(v1.input.maxSlenderness, 300);
+  assert.ok(v1.notes.some((n) => n.startsWith('Maximum slenderness L/r')));
+});
