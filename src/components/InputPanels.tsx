@@ -149,17 +149,17 @@ export const InputPanels: React.FC<{
           )}
         </div>
         <Check
-          checked={input.stringerCount === 0 || input.chordsSupportDeck}
+          checked={input.stringerCount > 0 && input.chordsSupportDeck}
           disabled={input.stringerCount === 0}
           onChange={(v) => set('chordsSupportDeck', v)}
-          title="The deck also bears on the bottom chords, which then carry the width halfway to the outer stringers. Without stringers the deck always spans between the bottom chords."
+          title="With stringers, the deck spans across the bridge and also bears on the bottom chords, which then carry the width halfway to the outer stringers. Without stringers the deck spans along the bridge between the cross girders."
         >
           Bottom Chords Support Deck
         </Check>
         <Readout
           label="Deck Span (Max)"
           value={`${deckSpan(model).toFixed(3)} m`}
-          title="Largest span of the deck across the bridge between its supports (centres), or the overhang beyond the outer stringers"
+          title="Without stringers: the panel length (the deck spans along the bridge between the cross girders). With stringers: the largest span of the deck across the bridge between its supports (centres), or the overhang beyond the outer stringers."
         />
         <NumberField label="Services (kN/m)" value={input.services} onChange={(v) => set('services', v)} min={0} max={10} step={0.1} decimals={2} title="Total for the bridge, shared equally by the bottom chords" />
         <div>
@@ -233,7 +233,7 @@ export const InputPanels: React.FC<{
       </section>
 
       {/* ---------------------------------------------------------------- loads */}
-      <LoadsPanel input={input} set={set} />
+      <LoadsPanel input={input} set={set} model={model} />
 
       {/* ---------------------------------------------------------------- design */}
       <DesignPanel input={input} set={set} model={model} results={results} />
@@ -243,6 +243,8 @@ export const InputPanels: React.FC<{
 
 /** Largest span of the deck across the bridge between its supports, or its overhang beyond the outer supports. */
 function deckSpan(model: BridgeModel): number {
+  // without stringers the deck spans along the bridge between the cross girders
+  if (!model.geo.deckShares.length) return model.geo.a;
   const ys = model.geo.deckShares.map((d) => d.y);
   let span = 0;
   for (let i = 1; i < ys.length; i++) span = Math.max(span, ys[i] - ys[i - 1]);
@@ -307,7 +309,7 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
   );
 };
 
-const LoadsPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) => {
+const LoadsPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }> = ({ input, set, model }) => {
   const [edit, setEdit] = useState(false);
   return (
     <section className="panel">
@@ -325,8 +327,14 @@ const LoadsPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) 
         </div>
         <Readout label="Wind Pressure ULS / SLS" value={`${windPressure(input.windUls).toFixed(2)} / ${windPressure(input.windSls).toFixed(2)} kPa`} title="q = 0.6 V² / 1000" />
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label={<>Drag Coefficient <S s="C" sub="d" /></>} value={input.dragCoeff} onChange={(v) => set('dragCoeff', v)} min={0} max={4} step={0.05} decimals={2} title="On the projected solid area of the windward truss and screen" />
+          <NumberField label={<>Drag Coefficient <S s="C" sub="d" /></>} value={input.dragCoeff} onChange={(v) => set('dragCoeff', v)} min={0} max={4} step={0.05} decimals={2} title="For one truss, on its projected solid area (members and screen), and on the deck edge and kerb" />
+          <NumberField label={<>Leeward Shielding <S s="K" sub="sh" /></>} value={input.leewardShielding} onChange={(v) => set('leewardShielding', v)} min={0} max={1} step={0.05} decimals={2} title="Factor on the drag of the leeward truss, shielded by the windward one (confirm against AS/NZS 1170.2 for the solidity and spacing)" />
+        </div>
+        <div className="grid grid-cols-2 gap-2 items-end">
           <NumberField label={<>Lift Coefficient <S s="C" sub="L" /></>} value={input.liftCoeff} onChange={(v) => set('liftCoeff', v)} min={0} max={2} step={0.05} decimals={2} title="Uplift on the deck plan area" />
+          <div className="pb-2">
+            <Readout label={<><S s="C" sub="d" /> × Depth</>} value={`${model.geo.windDepth.toFixed(2)} m`} title="Total lateral wind load per metre of span = q × this (both trusses, deck edge and exposed cross girder)" />
+          </div>
         </div>
       </div>
       <div className="section">

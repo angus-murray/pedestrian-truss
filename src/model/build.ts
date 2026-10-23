@@ -347,15 +347,19 @@ export function buildModel(input: BridgeInput): BridgeModel {
     steelMass += (w * m.length) / g;
     addUdl('G1s', m, [0, 0, -w]);
   }
-  // deck, pedestrian load and wind uplift: the deck spans across the bridge between its supports (the bottom
-  // chords and/or the stringers); each support carries the width halfway to its neighbours, the outer ones to the
-  // edge of the loaded width
+  // deck, pedestrian load and wind uplift:
+  //  - without stringers the deck spans along the bridge between the cross girders: each cross girder carries its
+  //    tributary length (half a panel each side, half at the end girders) as a uniform load along it;
+  //  - with stringers it spans across the bridge between the stringers (and the bottom chords if they support it):
+  //    each support carries the width halfway to its neighbours, the outer ones to the edge of the loaded width.
   const deckQ = deckT * input.deckDensity;
-  const chordSupport = !stringerYs.length || input.chordsSupportDeck;
-  const deckSupports = [
-    ...(chordSupport ? [{ y: -s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'A') }, { y: s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'B') }] : []),
-    ...stringerYs.map((y) => ({ y, members: members.filter((m) => m.group === 'stringer' && Math.abs(m.a[1] - y) < 1e-6) }))
-  ].sort((p, q) => p.y - q.y);
+  const chordSupport = stringerYs.length > 0 && input.chordsSupportDeck;
+  const deckSupports = stringerYs.length
+    ? [
+        ...(chordSupport ? [{ y: -s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'A') }, { y: s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'B') }] : []),
+        ...stringerYs.map((y) => ({ y, members: members.filter((m) => m.group === 'stringer' && Math.abs(m.a[1] - y) < 1e-6) }))
+      ].sort((p, q) => p.y - q.y)
+    : [];
   const share = (i: number, y0: number, y1: number) => {
     const lo = i === 0 ? -Infinity : (deckSupports[i - 1].y + deckSupports[i].y) / 2;
     const hi = i === deckSupports.length - 1 ? Infinity : (deckSupports[i].y + deckSupports[i + 1].y) / 2;
@@ -370,11 +374,23 @@ export function buildModel(input: BridgeInput): BridgeModel {
       addUdl('W', m, [0, 0, input.liftCoeff * deck]);
     }
   });
+  if (!stringerYs.length)
+    byGroup('crossGirder').forEach((m) => {
+      const trib = m.panel === 0 || m.panel === n ? a / 2 : a;
+      addUdl('G1d', m, [0, 0, (-deckQ * deckWidth * trib) / m.length]);
+      addUdl('Q', m, [0, 0, (-input.pedestrian * input.clearWidth * trib) / m.length]);
+      addUdl('W', m, [0, 0, (input.liftCoeff * deckWidth * trib) / m.length]);
+    });
   // screens, handrails, services on the bottom chords
   const lineG2 = (input.screens ? input.screenLoad * input.screenHeight : 0) + input.handrailLoad * handrailHeights.length + input.services / 2;
   for (const m of byGroup('bottomChord')) addUdl('G2', m, [0, 0, -lineG2]);
 
-  // wind: projected depth of truss A (members and screens), lateral +Y, and uplift on the deck
+  // wind, lateral +Y (truss A windward):
+  //  - each truss: C_d × its projected solid depth (members, plus the screen mesh over the area not already solid),
+  //    half to its top chord and half to its bottom chord; the leeward truss (B) is shielded by K_sh;
+  //  - the deck edge and kerb, a solid band above the bottom chord, C_d × its depth, carried by the deck to the two
+  //    bottom chords, half each;
+  //  - the cross girder depth exposed below the bottom chord, on the windward bottom chord.
   const Henv = H + dTC / 2 + dBC / 2;
   let projected = 0;
   for (const m of members) {
@@ -385,15 +401,24 @@ export function buildModel(input: BridgeInput): BridgeModel {
     projected += vis * horiz;
   }
   const solidity = Math.min(1, projected / (L * Henv));
-  const screenDepth = input.screens ? Math.min(input.screenHeight, Math.max(0, H + dTC / 2 - deckTop)) * input.screenSolidity * (1 - solidity) : 0;
+  const KERB = 0.1;
+  const deckBand = Math.max(0, Math.min(H + dTC / 2, deckTop + KERB) - Math.max(dBC / 2, deckSoffit)) * (1 - solidity);
+  const screenBase = deckTop + KERB, screenTop = Math.min(deckTop + input.screenHeight, H + dTC / 2);
+  const screenDepth = input.screens ? Math.max(0, screenTop - screenBase) * input.screenSolidity * (1 - solidity) : 0;
   const trussDepth = solidity * Henv + screenDepth;
   const cgExposed = Math.max(0, -dBC / 2 - (zCG - dCG / 2));
-  const windDepth = trussDepth + cgExposed;
-  const cd = input.dragCoeff;
+  const cd = input.dragCoeff, ksh = input.leewardShielding;
+  const windDepth = trussDepth * (1 + ksh) + deckBand + cgExposed;
   for (const m of members) {
-    if (m.side !== 'A') continue;
-    if (m.group === 'topChord') addUdl('W', m, [0, (cd * trussDepth) / 2, 0]);
-    if (m.group === 'bottomChord') addUdl('W', m, [0, cd * (trussDepth / 2 + cgExposed), 0]);
+    const k = m.side === 'A' ? 1 : ksh;
+    if (m.group === 'topChord' || m.group === 'bottomChord') {
+      const q = (cd * k * trussDepth) / 2 + (m.group === 'bottomChord' ? (cd * deckBand) / 2 + (m.side === 'A' ? cd * cgExposed : 0) : 0);
+      addUdl('W', m, [0, q, 0]);
+    } else if (m.group === 'endPost') {
+      // in the end panels the top chord share is carried by the raking end posts (per metre of span → per metre of post)
+      const dx = Math.abs(m.b[0] - m.a[0]);
+      addUdl('W', m, [0, ((cd * k * trussDepth) / 2) * (dx / m.length), 0]);
+    }
   }
 
   // barrier load at the top handrail on the web members that carry the handrail brackets, outwards

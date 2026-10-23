@@ -74,7 +74,8 @@ export interface BridgeInput {
   pedestrian: number; // kPa
   windUls: number; // m/s
   windSls: number; // m/s
-  dragCoeff: number;
+  dragCoeff: number; // each truss, on its projected solid area
+  leewardShielding: number; // shielding factor K_sh for the leeward truss
   liftCoeff: number;
   barrier: number; // kN/m
   restraintPct: number; // % of top chord force, 0 = off
@@ -184,6 +185,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   windUls: 48,
   windSls: 37,
   dragCoeff: 2.0,
+  leewardShielding: 0.5,
   liftCoeff: 0.75,
   barrier: 1.5,
   restraintPct: 2.5,

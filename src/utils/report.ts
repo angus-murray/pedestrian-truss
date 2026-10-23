@@ -358,7 +358,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     ['G2 services', `${f2(input.services)} kN/m`],
     ['Pedestrian Q', `${f2(input.pedestrian)} kPa`],
     ['Wind V_u / V_s', `${f0(input.windUls)} / ${f0(input.windSls)} m/s (${f2(windPressure(input.windUls))} / ${f2(windPressure(input.windSls))} kPa)`],
-    ['C_d / C_L', `${f2(input.dragCoeff)} / ${f2(input.liftCoeff)}`],
+    ['C_d (each truss) / K_sh (leeward) / C_L', `${f2(input.dragCoeff)} / ${f2(input.leewardShielding)} / ${f2(input.liftCoeff)}`],
     ['Barrier load B', `${f2(input.barrier)} kN/m`],
     ['U-frame restraint', input.restraintPct > 0 ? `${f1(input.restraintPct)}% of top chord force` : 'Not applied']
   ]);
@@ -500,7 +500,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   paragraph(
     'The two trusses, cross girders and plan bracing are modelled as a linear elastic 3D frame of Euler–Bernoulli beam elements, each member divided into ' +
       `${input.elementsPerMember} elements. Chords are continuous; joints are rigid except where released. The cross girders frame into the bottom chord panel points and form U-frames with the verticals, which are the only lateral restraint of the top chords. ` +
-      'The deck is non-structural and spans one way onto the cross girders. Load cases are combined linearly.'
+      'The deck is non-structural. Without stringers it spans along the bridge between the cross girders; with stringers it spans across the bridge between the stringers (and the bottom chords where they support it). Load cases are combined linearly.'
   );
   paragraph(
     'The elastic buckling load factors λ_c come from a linearised buckling analysis of the whole frame (geometric stiffness from the member axial forces of each ULS combination). For members designed by buckling analysis, the elastic buckling load is N_om = λ_c N* for the lowest mode in which the member takes part, and the slenderness l_e/r = π√(E A_g / N_om) is used in AS 5100.6 Cl. 6.3.3. Moments in compression members are amplified by 1/(1 − N*/N_om).'
