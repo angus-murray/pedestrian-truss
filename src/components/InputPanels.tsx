@@ -19,7 +19,7 @@ import {
   type TrussType
 } from '../model/types';
 import { panelCount, type BridgeModel } from '../model/build';
-import { windPressure } from '../model/analysis';
+import { windPressure, type AnalysisResults } from '../model/analysis';
 import { FINISH } from './viewer/scene';
 
 type Set = <K extends keyof BridgeInput>(k: K, v: BridgeInput[K]) => void;
@@ -45,7 +45,9 @@ export const InputPanels: React.FC<{
   onOptimise: () => void;
   optimiseLog: string[] | null;
   solving: boolean;
-}> = ({ input, set, model, onOptimise, optimiseLog, solving }) => {
+  /** Results for the current inputs (null when not solved or out of date). */
+  results: AnalysisResults | null;
+}> = ({ input, set, model, onOptimise, optimiseLog, solving, results }) => {
   const { geo } = model;
   const n = panelCount(input);
   return (
@@ -217,7 +219,7 @@ export const InputPanels: React.FC<{
       <LoadsPanel input={input} set={set} />
 
       {/* ---------------------------------------------------------------- design */}
-      <DesignPanel input={input} set={set} />
+      <DesignPanel input={input} set={set} model={model} results={results} />
     </>
   );
 };
@@ -413,9 +415,41 @@ const LE_OPTIONS: { value: LeMethod; label: string }[] = [
   { value: 'uframe', label: 'U-Frame' }
 ];
 
-const DesignPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set }) => {
+/**
+ * Effective length factors l_e / L found by the analysis for the governing compression member of each group (the
+ * compression member with the highest utilisation), with its name.
+ */
+function computedFactors(model: BridgeModel, results: AnalysisResults | null) {
+  const out: Partial<Record<GroupKey, { kx: number; ky: number; name: string; util: number }>> = {};
+  if (!results) return out;
+  for (const d of results.design) {
+    const m = model.members[d.member];
+    if (!d.comp || !m) continue;
+    const cur = out[m.group];
+    if (!cur || d.util > cur.util) out[m.group] = { kx: d.leMajor / m.length, ky: d.leMinor / m.length, name: m.name, util: d.util };
+  }
+  return out;
+}
+
+const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; results: AnalysisResults | null }> = ({ input, set, model, results }) => {
   const upd = (g: GroupKey, patch: Partial<BridgeInput['design'][GroupKey]>) => set('design', { ...input.design, [g]: { ...input.design[g], ...patch } });
-  const k = (g: GroupKey, key: 'kMajor' | 'kMinor' | 'kLtb', disabled: boolean) => (
+  const calc = useMemo(() => computedFactors(model, results), [model, results]);
+  const k = (g: GroupKey, key: 'kMajor' | 'kMinor' | 'kLtb', disabled: boolean) => {
+    // a factor found by the analysis is shown read-only once solved
+    const c = calc[g];
+    if (disabled && c && key !== 'kLtb') {
+      const v = key === 'kMajor' ? c.kx : c.ky;
+      return (
+        <input
+          type="text"
+          readOnly
+          value={v.toFixed(2)}
+          title={`From the analysis: ${c.name}, the governing compression member of the group (l_e / L)`}
+          className="control-sm w-full text-center tabular-nums px-1 bg-slate-50 text-slate-700"
+        />
+      );
+    }
+    return (
     <input
       type="text"
       inputMode="decimal"
@@ -429,7 +463,8 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set })
         else e.target.value = input.design[g][key].toFixed(2);
       }}
     />
-  );
+    );
+  };
   const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'stringer' || input.stringers)), [input.trussType, input.stringers]);
   return (
     <section className="panel">

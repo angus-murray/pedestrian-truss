@@ -106,7 +106,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-3">
         <div className="tab-grid">
           <fieldset className="input-column scroll-thin" disabled={solving} style={{ opacity: solving ? 0.6 : 1 }}>
-            <InputPanels input={input} set={set} model={model} onOptimise={onOptimise} optimiseLog={optLog} solving={solving} />
+            <InputPanels input={input} set={set} model={model} onOptimise={onOptimise} optimiseLog={optLog} solving={solving} results={results} />
           </fieldset>
           <div className="results-column">
             <div className="h-[560px] lg:h-[calc(100vh-330px)] lg:min-h-[420px] lg:max-h-[900px]">
