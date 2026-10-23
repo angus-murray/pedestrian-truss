@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppHeader, Modal, ReportDialog, today } from 'engineering-ui';
 import { FolderOpen, RotateCcw, Save } from 'lucide-react';
-import { DEFAULT_INPUT, type BridgeInput } from './model/types';
+import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './model/types';
 import { buildModel } from './model/build';
 import { useAnalysis } from './model/useAnalysis';
 import { InputPanels } from './components/InputPanels';
@@ -13,13 +13,19 @@ import { generateReport, REPORT_INFO_FIELDS, type ReportInfo } from './utils/rep
 const STORE = 'pedtruss-input-v5';
 
 /** Fills in any inputs missing from a saved file (older versions) with the defaults. */
+/** A saved combination equal to a superseded default becomes the current default; edited ones are kept. */
+function updateCombo(c: Combination): Combination {
+  const same = (a: Combination, b: Combination) => (Object.keys(a) as (keyof Combination)[]).every((k) => a[k] === b[k]);
+  return SUPERSEDED_COMBOS.find(([old]) => same(old, c))?.[1] ?? c;
+}
+
 function withDefaults(x: Partial<BridgeInput>): BridgeInput {
   return {
     ...DEFAULT_INPUT,
     ...x,
     sections: { ...DEFAULT_INPUT.sections, ...(x.sections ?? {}) },
     design: { ...DEFAULT_INPUT.design, ...(x.design ?? {}) },
-    combos: x.combos?.length ? x.combos : DEFAULT_INPUT.combos
+    combos: x.combos?.length ? x.combos.map(updateCombo) : DEFAULT_INPUT.combos
   };
 }
 

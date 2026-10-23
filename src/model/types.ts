@@ -118,14 +118,28 @@ const des = (method: LeMethod, kMajor = 1, kMinor = 1, kLtb = 1): GroupDesign =>
 
 export const DEFAULT_COMBOS: Combination[] = [
   { name: 'Dead', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 0, w: 0, b: 0, deflection: false },
-  { name: 'Dead + Pedestrian', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 0, deflection: false },
-  { name: 'Dead + Pedestrian + Barrier', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 1.0, deflection: false },
+  // pedestrian load factor 1.5 (AS 5100.2 Table 8.3)
+  { name: 'Dead + Pedestrian', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.5, w: 0, b: 0, deflection: false },
+  // barrier load factor 1.8 (Table 12.5), with the serviceability pedestrian load (Cl. 12.5)
+  { name: 'Dead + Pedestrian (SLS) + Barrier', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.0, w: 0, b: 1.8, deflection: false },
   { name: 'Dead + Wind', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 0, w: 1.0, b: 0, deflection: false },
   { name: 'Dead (Min) + Wind', type: 'ULS', g1s: 0.9, g1d: 0.85, g2: 0.7, q: 0, w: 1.0, b: 0, deflection: false },
   { name: 'Dead', type: 'SLS', g1s: 1, g1d: 1, g2: 1, q: 0, w: 0, b: 0, deflection: false },
   { name: 'Pedestrian', type: 'SLS', g1s: 0, g1d: 0, g2: 0, q: 1.0, w: 0, b: 0, deflection: true },
   { name: 'Dead + Pedestrian', type: 'SLS', g1s: 1, g1d: 1, g2: 1, q: 1.0, w: 0, b: 0, deflection: false },
   { name: 'Dead + Wind', type: 'SLS', g1s: 1, g1d: 1, g2: 1, q: 0, w: 1.0, b: 0, deflection: false }
+];
+
+/** Default combinations of earlier versions that have since changed: saved rows equal to these are updated. */
+export const SUPERSEDED_COMBOS: [Combination, Combination][] = [
+  [
+    { name: 'Dead + Pedestrian', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 0, deflection: false },
+    DEFAULT_COMBOS[1]
+  ],
+  [
+    { name: 'Dead + Pedestrian + Barrier', type: 'ULS', g1s: 1.1, g1d: 1.2, g2: 1.4, q: 1.8, w: 0, b: 1.0, deflection: false },
+    DEFAULT_COMBOS[2]
+  ]
 ];
 
 export const DEFAULT_INPUT: BridgeInput = {
