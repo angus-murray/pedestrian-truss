@@ -3,6 +3,9 @@ import { runAnalysis } from './analysis';
 import { optimiseSections } from './optimise';
 import type { BridgeInput } from './types';
 
+// tells the app that this script has loaded (an error before this is a failure to load it)
+self.postMessage({ ready: true });
+
 self.onmessage = (ev: MessageEvent<{ id: number; input: BridgeInput; kind?: 'solve' | 'optimise' }>) => {
   const { id, input, kind } = ev.data;
   const progress = (msg: string) => self.postMessage({ id, progress: msg });
@@ -18,6 +21,8 @@ self.onmessage = (ev: MessageEvent<{ id: number; input: BridgeInput; kind?: 'sol
     }
   } catch (e) {
     console.error(e);
-    self.postMessage({ id, error: e instanceof Error ? e.message : String(e) });
+    // the message with where it happened, so that a report identifies the fault
+    const where = e instanceof Error && e.stack ? e.stack.split('\n').find((l) => /\.(ts|js)/.test(l))?.trim() : undefined;
+    self.postMessage({ id, error: `${e instanceof Error ? e.message : String(e)}${where ? ` [${where.replace(/^at\s+/, '')}]` : ''}` });
   }
 };

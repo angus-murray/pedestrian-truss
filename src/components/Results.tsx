@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Banner, Cols, Dash, PassFail, ResultsHeader, StatusChip, UtilValue, pct } from 'engineering-ui';
 import { ChevronDown } from 'lucide-react';
 import type { BridgeModel } from '../model/build';
+import type { SolverError } from '../model/useAnalysis';
 import { comboLabel, uFrameLength, type AnalysisResults, type MemberDesign } from '../model/analysis';
 import { GROUP_INFO, GROUPS, type BridgeInput, type GroupKey } from '../model/types';
 
@@ -51,7 +52,7 @@ export const Results: React.FC<{
   results: AnalysisResults | null;
   stale: boolean;
   solving: boolean;
-  error: string | null;
+  error: SolverError | null;
   selected: number | null;
   onSelect: (id: number | null) => void;
 }> = ({ model, input, results, stale, solving, error, selected, onSelect }) => {
@@ -82,7 +83,18 @@ export const Results: React.FC<{
           {chip}
         </ResultsHeader>
         {model.errors.length > 0 && <Banner kind="error" title="Input errors" items={model.errors} />}
-        {error && <Banner kind="error" title="Solver error">{error}</Banner>}
+        {error && (
+          <Banner kind="error" title="Solver error">
+            {error.message}
+            {error.reload && (
+              <div className="mt-2">
+                <button type="button" className="btn !h-7" onClick={() => window.location.reload()}>
+                  Reload
+                </button>
+              </div>
+            )}
+          </Banner>
+        )}
         {r && r.errors.length > 0 && <Banner kind="error" title="Analysis errors" items={r.errors} />}
         {warnings.length > 0 && <Banner kind="warning" title="Warnings" items={warnings} />}
         {r && sum && (
