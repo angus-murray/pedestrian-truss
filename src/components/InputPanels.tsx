@@ -339,7 +339,7 @@ const LoadsPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }>
       </div>
       <div className="section">
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Barrier Load (kN/m)" value={input.barrier} onChange={(v) => set('barrier', v)} min={0} max={10} step={0.25} decimals={2} title="Nominal (unfactored) pedestrian barrier load, horizontal, outwards, at the top handrail. The default combination factors it by 1.8 (AS 5100.2 Table 12.5) with the serviceability pedestrian load (Cl. 12.5)." />
+          <NumberField label="Barrier Load (kN/m)" value={input.barrier} onChange={(v) => set('barrier', v)} min={0} max={10} step={0.25} decimals={2} title="Nominal (unfactored) pedestrian barrier load, horizontal, outwards, at the top handrail: 0.75 kN/m, or 3.0 kN/m where crowd loading or panic is possible. The default combination factors it by 1.8 (AS 5100.2 Table 12.5) with the serviceability pedestrian load (Cl. 12.5)." />
           <NumberField label="U-Frame Restraint (%)" value={input.restraintPct} onChange={(v) => set('restraintPct', v)} min={0} max={10} step={0.5} decimals={1} title="Lateral force at each top chord node, as a percentage of the top chord compression, acting inwards (ULS combinations). 0 = not applied." />
         </div>
         <button type="button" className="btn w-full" onClick={() => setEdit(true)}>

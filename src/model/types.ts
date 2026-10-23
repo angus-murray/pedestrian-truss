@@ -77,7 +77,7 @@ export interface BridgeInput {
   dragCoeff: number; // each truss, on its projected solid area
   leewardShielding: number; // shielding factor K_sh for the leeward truss
   liftCoeff: number;
-  barrier: number; // kN/m
+  barrier: number; // kN/m, nominal: 0.75 (3.0 where crowd loading or panic is possible)
   restraintPct: number; // % of top chord force, 0 = off
   uFrameJointFlex: number; // mrad/kNm, flexibility of the vertical to cross girder joint (U-frame method)
   combos: Combination[];
@@ -189,7 +189,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   dragCoeff: 2.0,
   leewardShielding: 0.5,
   liftCoeff: 0.75,
-  barrier: 1.5,
+  barrier: 0.75,
   restraintPct: 2.5,
   uFrameJointFlex: 0,
   combos: DEFAULT_COMBOS,

@@ -27,7 +27,9 @@ function withDefaults(x: Partial<BridgeInput>): BridgeInput {
     design: { ...DEFAULT_INPUT.design, ...(x.design ?? {}) },
     combos: x.combos?.length ? x.combos.map(updateCombo) : DEFAULT_INPUT.combos,
     // spans are limited to 50 m (the range of the vibration dynamic response factor)
-    span: Math.min(50, x.span ?? DEFAULT_INPUT.span)
+    span: Math.min(50, x.span ?? DEFAULT_INPUT.span),
+    // 1.5 kN/m was the default barrier load of earlier versions
+    barrier: x.barrier === undefined || x.barrier === 1.5 ? DEFAULT_INPUT.barrier : x.barrier
   };
 }
 

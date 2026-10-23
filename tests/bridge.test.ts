@@ -86,13 +86,14 @@ test('horizontal deflection under SLS wind: midspan average of the top and botto
   assert.ok(results.sls.filter((s) => results.combos[s.combo].factors.W === 0).every((s) => s.horizontal === null));
 });
 
-test('default ULS combinations: pedestrian 1.5 (Table 8.3), barrier 1.8 with SLS pedestrian (Table 12.5, Cl. 12.5)', async () => {
+test('default ULS combinations: pedestrian 1.5 (Table 8.3), barrier 1.8 with SLS pedestrian (Table 12.5, Cl. 12.5), barrier load 0.75 kN/m', async () => {
   const { DEFAULT_COMBOS } = await import('../src/model/types');
   const ped = DEFAULT_COMBOS.find((c) => c.type === 'ULS' && c.q > 0 && c.b === 0)!;
   const bar = DEFAULT_COMBOS.find((c) => c.type === 'ULS' && c.b > 0)!;
   assert.equal(ped.q, 1.5);
   assert.equal(bar.b, 1.8);
   assert.equal(bar.q, 1.0);
+  assert.equal(DEFAULT_INPUT.barrier, 0.75);
 });
 
 test('buckling analysis method: N_om for each axis, top chord in-plane from its Euler load (k = 1)', () => {
