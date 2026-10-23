@@ -8,7 +8,7 @@ import { jsPDF } from 'jspdf';
 import type { BridgeInput } from '../model/types';
 import { DECK_INFO, GROUP_INFO, GROUPS } from '../model/types';
 import { effectiveSections, type BridgeModel } from '../model/build';
-import { comboLabel, windPressure, type AnalysisResults } from '../model/analysis';
+import { comboLabel, bucklingLabel, windPressure, type AnalysisResults } from '../model/analysis';
 import { summarise } from '../components/Results';
 import type { ViewCapture } from '../components/viewer/Viewer3D';
 
@@ -423,7 +423,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     [40, ...Array(nb).fill(60 / nb)],
     [
       { cells: ['Combination', ...Array.from({ length: nb }, (_, k) => `λ_c mode ${k + 1}`)], kind: 'head' },
-      ...r.buckling.map((b) => ({ cells: [comboLabel(r.combos[b.combo]), ...Array.from({ length: nb }, (_, k) => (b.values[k] !== undefined ? f2(b.values[k]) : '—'))] }))
+      ...r.buckling.map((b) => ({ cells: [bucklingLabel(r.combos[b.combo]), ...Array.from({ length: nb }, (_, k) => (b.values[k] !== undefined ? f2(b.values[k]) : '—'))] }))
     ]
   );
 

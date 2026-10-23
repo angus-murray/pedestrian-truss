@@ -3,7 +3,7 @@ import { Banner, Cols, Dash, PassFail, ResultsHeader, StatusChip, UtilValue, pct
 import { ChevronDown } from 'lucide-react';
 import type { BridgeModel } from '../model/build';
 import type { SolverError } from '../model/useAnalysis';
-import { comboLabel, uFrameLength, type AnalysisResults, type MemberDesign } from '../model/analysis';
+import { comboLabel, bucklingLabel, uFrameLength, type AnalysisResults, type MemberDesign } from '../model/analysis';
 import { GROUP_INFO, GROUPS, type BridgeInput, type GroupKey } from '../model/types';
 
 const S: React.FC<{ s: string; sub?: string }> = ({ s, sub }) => (
@@ -217,7 +217,7 @@ const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: Member
                 <tbody>
                   <KV k="Effective Length Method" v={d.leMethod} />
                   {d.mode !== null && <KV k="Buckling Mode Used" v={`Mode ${d.mode}, λ = ${d.lambdaCr!.toFixed(3)}`} />}
-                  {uf && <KV k="U-Frame Flexibility δ" v={`${(uf.delta * 1000).toFixed(3)} mm/kN (d₁ = ${uf.d1.toFixed(3)} m, d₂ = ${uf.d2.toFixed(3)} m)`} />}
+                  {uf && <KV k="U-Frame Flexibility δ" v={`${(uf.delta * 1000).toFixed(3)} mm/kN (d₁ = ${uf.d1.toFixed(3)} m, d₂ = ${uf.d2.toFixed(3)} m${uf.Ld ? `, L_d = ${uf.Ld.toFixed(3)} m` : ''})`} />}
                   <KV k={<>Elastic Buckling Load <S s="N" sub="om" /></>} v={`${f0(comp.Nom)} kN`} />
                   <KV k={<><S s="l" sub="e" /> Major / Minor</>} v={`${d.leMajor.toFixed(2)} / ${d.leMinor.toFixed(2)} m (${(d.leMajor / m.length).toFixed(2)}L / ${(d.leMinor / m.length).toFixed(2)}L)`} />
                   <KV k={<><S s="l" sub="e" />/<S s="r" />, <S s="λ" sub="n" /></>} v={`${f1(comp.slenderness)}, ${f1(comp.lambdaN)}`} />
@@ -507,7 +507,7 @@ const BucklingPanel: React.FC<{ model: BridgeModel; r: AnalysisResults }> = ({ m
           <tbody>
             {r.buckling.map((b, bi) => (
               <tr key={bi}>
-                <td className="!text-left">{comboLabel(r.combos[b.combo])}</td>
+                <td className="!text-left">{bucklingLabel(r.combos[b.combo])}</td>
                 {Array.from({ length: nCols }, (_, k) => (
                   <td key={k} className={k === 0 && b.values[0] < 1 ? 'text-rose-700 font-semibold' : ''}>
                     {b.values[k] !== undefined ? b.values[k].toFixed(2) : <Dash />}

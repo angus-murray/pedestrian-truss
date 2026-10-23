@@ -556,6 +556,18 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
         <NumberField label="Buckling Modes" value={input.bucklingModes} onChange={(v) => set('bucklingModes', Math.round(v))} min={1} max={20} step={1} title="Number of buckling modes computed for each ULS combination" />
         <NumberField label="Participation (%)" value={input.participation} onChange={(v) => set('participation', v)} min={1} max={100} step={1} title="A member takes its buckling load from the lowest mode in which its strain energy is at least this share of that of the most strained member" />
       </div>
+      <NumberField
+        label="U-Frame Joint Flexibility f (mrad/kNm)"
+        value={input.uFrameJointFlex}
+        onChange={(v) => set('uFrameJointFlex', v)}
+        min={0}
+        max={10}
+        step={0.01}
+        decimals={2}
+        disabled={input.design.topChord.method !== 'uframe'}
+        disabledText="–"
+        title="Rotational flexibility of the joint between the verticals (or diagonals) and the cross girders, for the U-frame effective length method; 0 for a fully rigid, stiffened joint"
+      />
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Elements per Member" value={input.elementsPerMember} onChange={(v) => set('elementsPerMember', Math.round(v))} min={2} max={10} step={1} />
         <div className="flex items-end pb-2">

@@ -79,6 +79,7 @@ export interface BridgeInput {
   liftCoeff: number;
   barrier: number; // kN/m
   restraintPct: number; // % of top chord force, 0 = off
+  uFrameJointFlex: number; // mrad/kNm, flexibility of the vertical to cross girder joint (U-frame method)
   combos: Combination[];
   // design
   design: Record<GroupKey, GroupDesign>;
@@ -189,6 +190,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   liftCoeff: 0.75,
   barrier: 1.5,
   restraintPct: 2.5,
+  uFrameJointFlex: 0,
   combos: DEFAULT_COMBOS,
   design: {
     topChord: des('buckling'),

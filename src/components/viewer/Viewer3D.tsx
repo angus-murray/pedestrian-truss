@@ -8,7 +8,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { useTheme, pct } from 'engineering-ui';
 import { CheckCircle2, Loader2, Play } from 'lucide-react';
 import type { BridgeModel } from '../../model/build';
-import { comboLabel, type AnalysisResults } from '../../model/analysis';
+import { comboLabel, bucklingLabel, type AnalysisResults } from '../../model/analysis';
 import { buildBridge, groundLevel, type BridgeObjects } from './scene';
 import { buildPeople } from './people';
 import { axialColour, magnitudeColour, utilColour, UTIL_LEGEND } from './colours';
@@ -465,7 +465,7 @@ export const Viewer3D: React.FC<{
                 <select className="control-sm w-full" value={bCombo} onChange={(e) => (setBCombo(+e.target.value), setBMode(0))}>
                   {results!.buckling.map((b, i) => (
                     <option key={i} value={i}>
-                      {comboLabel(results!.combos[b.combo])}
+                      {bucklingLabel(results!.combos[b.combo])}
                     </option>
                   ))}
                 </select>

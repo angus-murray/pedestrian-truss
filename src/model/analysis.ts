@@ -17,6 +17,8 @@ export interface ComboDef {
   deflection: boolean;
   /** Wind pressure (kPa) used for the W factor. */
   windQ: number;
+  /** For a U-frame restraint pattern added to a ULS combination: that combination (its buckling analysis). */
+  base?: number;
 }
 
 export const windPressure = (V: number) => (0.6 * V * V) / 1000; // kPa, ρ = 1.2 kg/m³
@@ -29,6 +31,8 @@ export function expandCombos(input: BridgeInput): ComboDef[] {
 }
 
 export const comboLabel = (c: ComboDef) => c.name;
+/** Label of a combination for its buckling analysis (made without the U-frame restraint forces). */
+export const bucklingLabel = (c: ComboDef) => c.name.replace(/ \+ U-Frame Inward$/, '');
 
 /** Internal actions at the stations of a member: N, Vy, Vz, T, My (major), Mz (minor) per station. */
 export type StationForces = Float32Array; // stations × 6
@@ -221,30 +225,15 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const forces: StationForces[][] = [];
   const axial: Float64Array[] = []; // element axial forces per combo (for buckling), tension positive
   const tcMembers = model.members.filter((m) => m.group === 'topChord');
+  const combU: Float64Array[] = [], combEf: Float64Array[] = [];
   combos.forEach((c) => {
     const u = combine(c.factors, caseU, nNodes * 6);
     const ef = combine(c.factors, caseF, nEl * 12);
     const N = new Float64Array(nEl);
     for (let e = 0; e < nEl; e++) N[e] = -ef[e * 12];
     axial.push(N);
-    if (c.type === 'ULS' && input.restraintPct > 0) {
-      // lateral restraint force at each top chord node, a share of the larger adjacent chord compression,
-      // acting inwards on both trusses
-      const nodal = model.topNodes.map(({ node, side }) => {
-        let Nc = 0;
-        for (const m of tcMembers) {
-          if (m.side !== side) continue;
-          if (m.nodes[0] !== node && m.nodes[m.nodes.length - 1] !== node) continue;
-          for (const el of m.elements) Nc = Math.max(Nc, -N[el]);
-        }
-        const F = (input.restraintPct / 100) * Nc;
-        return { node, f: [0, side === 'A' ? F : -F, 0, 0, 0, 0] as [number, number, number, number, number, number] };
-      });
-      const ur = solver.expand(solver.K.solve(solver.loadVector({ nodal, elements: [] })));
-      const fr = elForces(ur, () => null);
-      for (let i = 0; i < u.length; i++) u[i] += ur[i];
-      for (let i = 0; i < ef.length; i++) ef[i] += fr[i];
-    }
+    combU.push(u);
+    combEf.push(ef);
     disp.push(Float32Array.from(u));
     forces.push(stationForces(ef));
   });
@@ -285,6 +274,66 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     if (!r.converged) warnings.push(`The buckling analysis for ${comboLabel(c)} did not fully converge.`);
     buckling.push({ combo: ci, values: r.values, modes, participation, converged: r.converged });
   });
+
+  // ---------------------------------------------------------- U-frame restraint forces (ULS)
+  // A lateral force at each top chord node, a share of the larger adjacent chord compression (AS 5100.6 Cl. 6.6.1),
+  // amplified for the U-frame flexibility by 1 / (1 − 1/λ), λ the lowest buckling factor of the combination in which
+  // the top chords take part. The force is a design force for each restraint: the patterns act at every U-frame
+  // but alternate along the span where they would otherwise add up to a fictitious global side load. Three patterns,
+  // each a design case: both trusses inwards at every U-frame (cross girders in single curvature); both trusses in
+  // the same direction (sway, cross girders in double curvature), alternating from one U-frame to the next; and
+  // inwards and outwards alternating along the span (multi-wave).
+  const nBase = combos.length;
+  if (input.restraintPct > 0) {
+    const nodeX = (nd: number) => model.fe.nodes[nd].x;
+    const xs = [...new Set(model.topNodes.map((t) => Math.round(nodeX(t.node) * 1000)))].sort((p, q) => p - q);
+    const patterns: { label: string; sign: (side: 'A' | 'B', node: number) => number }[] = [
+      { label: 'U-Frame Inward', sign: (side) => (side === 'A' ? 1 : -1) },
+      { label: 'U-Frame Sway', sign: (_side, node) => (xs.indexOf(Math.round(nodeX(node) * 1000)) % 2 ? -1 : 1) },
+      { label: 'U-Frame Alternating', sign: (side, node) => (side === 'A' ? 1 : -1) * (xs.indexOf(Math.round(nodeX(node) * 1000)) % 2 ? -1 : 1) }
+    ];
+    for (let ci = 0; ci < nBase; ci++) {
+      const c = combos[ci];
+      if (c.type !== 'ULS') continue;
+      const b = buckling.find((x) => x.combo === ci);
+      const thr = input.participation / 100;
+      let lam = b?.values[0] ?? Infinity;
+      if (b) {
+        const k = b.values.findIndex((_, i) => tcMembers.some((m) => b.participation[i][m.id] >= thr));
+        if (k >= 0) lam = b.values[k];
+      }
+      const amp = lam > 1.05 ? 1 / (1 - 1 / lam) : 20;
+      const N = axial[ci];
+      const Fat = (node: number, side: 'A' | 'B') => {
+        let Nc = 0;
+        for (const m of tcMembers) {
+          if (m.side !== side) continue;
+          if (m.nodes[0] !== node && m.nodes[m.nodes.length - 1] !== node) continue;
+          for (const el of m.elements) Nc = Math.max(Nc, -N[el]);
+        }
+        return (input.restraintPct / 100) * Nc * amp;
+      };
+      patterns.forEach((pat, pi) => {
+        const nodal = model.topNodes.map(({ node, side }) => ({ node, f: [0, pat.sign(side, node) * Fat(node, side), 0, 0, 0, 0] as [number, number, number, number, number, number] }));
+        const ur = solver.expand(solver.K.solve(solver.loadVector({ nodal, elements: [] })));
+        const fr = elForces(ur, () => null);
+        const u = Float64Array.from(combU[ci], (v, i) => v + ur[i]);
+        const ef = Float64Array.from(combEf[ci], (v, i) => v + fr[i]);
+        const name = `${c.name} + ${pat.label}`;
+        if (pi === 0) {
+          // the first pattern replaces the combination without restraint forces
+          combos[ci] = { ...c, name };
+          disp[ci] = Float32Array.from(u);
+          forces[ci] = stationForces(ef);
+        } else {
+          combos.push({ ...c, name, base: ci });
+          axial.push(N);
+          disp.push(Float32Array.from(u));
+          forces.push(stationForces(ef));
+        }
+      });
+    }
+  }
 
   // ---------------------------------------------------------- natural frequencies
   progress('Natural frequencies');
@@ -427,22 +476,34 @@ function interp(m: Member, sf: StationForces, d: number, f: number) {
   return sf[(st.length - 1) * 6 + d];
 }
 
-/** U-frame flexibility δ (m/kN) and effective length of the top chord between U-frames (Engesser). */
-export function uFrameLength(model: BridgeModel): { le: number; delta: number; d1: number; d2: number; I1: number; I2: number; Ic: number } {
+/**
+ * U-frame flexibility δ (m/kN) and effective length of the top chord between U-frames (Engesser, BS 5400-3
+ * Cl. 9.6.4.1.3): δ = d1³/(3EI1) + s d2²/(2EI2) + f d2² for a vertical on a cross girder (cross girder in single
+ * curvature, which is conservative), with f the flexibility of the vertical to cross girder joint. In a Warren truss
+ * the U-frame at a top chord node is the two diagonals meeting there, each a cantilever of its inclined length L_d,
+ * on two cross girders: δ = L_d³/(6EI1) + s d2²/(4EI2) + f d2²/2.
+ */
+export function uFrameLength(model: BridgeModel): { le: number; delta: number; d1: number; d2: number; I1: number; I2: number; Ic: number; Ld: number | null } {
   const { geo, input } = model;
-  // U-frame web member: the verticals, or the diagonals of a Warren truss
-  const vert = model.members.find((m) => m.group === 'vertical') ?? model.members.find((m) => m.group === 'diagonal') ?? model.members.find((m) => m.group === 'endPost')!;
+  const warren = !geo.verticals;
+  const web = model.members.find((m) => m.group === (warren ? 'diagonal' : 'vertical')) ?? model.members.find((m) => m.group === 'endPost')!;
   const secs = effectiveSections(input);
   const cg = model.members.find((m) => m.group === 'crossGirder')!;
   const tc = model.members.find((m) => m.group === 'topChord')!;
   const E = E_STEEL * 1000; // kPa
-  const I1 = (secs[vert.group].rotate ? vert.sp.Iy : vert.sp.Ix) * 1e-12;
+  const I1 = (secs[web.group].rotate ? web.sp.Iy : web.sp.Ix) * 1e-12;
   const I2 = (input.sections.crossGirder.rotate ? cg.sp.Iy : cg.sp.Ix) * 1e-12;
   const Ic = (input.sections.topChord.rotate ? tc.sp.Ix : tc.sp.Iy) * 1e-12;
   const d1 = geo.H - geo.cgTop, d2 = geo.H - geo.zCG;
-  const delta = d1 ** 3 / (3 * E * I1) + (geo.s * d2 * d2) / (2 * E * I2);
+  const f = input.uFrameJointFlex / 1000; // rad/kNm
+  let delta: number, Ld: number | null = null;
+  if (warren) {
+    const sinA = geo.H / Math.hypot(geo.H, geo.a / 2);
+    Ld = d1 / sinA;
+    delta = Ld ** 3 / (6 * E * I1) + (geo.s * d2 * d2) / (4 * E * I2) + (f * d2 * d2) / 2;
+  } else delta = d1 ** 3 / (3 * E * I1) + (geo.s * d2 * d2) / (2 * E * I2) + f * d2 * d2;
   const le = Math.max(geo.a, 2.5 * (E * Ic * geo.a * delta) ** 0.25);
-  return { le, delta, d1, d2, I1, I2, Ic };
+  return { le, delta, d1, d2, I1, I2, Ic, Ld };
 }
 
 /**
@@ -491,7 +552,7 @@ export function designMember(
     const L = m.length;
     if (compression) {
       if (set.method === 'buckling') {
-        const b = buckling.find((x) => x.combo === ci);
+        const b = buckling.find((x) => x.combo === (c.base ?? ci));
         leMethod = 'Buckling Analysis';
         if (b && b.values.length) {
           let k = b.values.findIndex((_, i) => b.participation[i][m.id] >= input.participation / 100);
