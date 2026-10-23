@@ -120,7 +120,7 @@ export const InputPanels: React.FC<{
               set('deckThickness', d.thickness);
               set('deckDensity', d.density);
               // grating and boards span across between stringers
-              if (v === 'frp' || v === 'timber') set('stringers', true);
+              if ((v === 'frp' || v === 'timber') && input.stringerCount === 0) set('stringerCount', 4);
             }}
             options={(Object.keys(DECK_INFO) as DeckType[]).map((k) => ({ value: k, label: DECK_INFO[k].label }))}
           />
@@ -132,18 +132,35 @@ export const InputPanels: React.FC<{
             <Readout label="Deck Weight" value={`${((input.deckThickness / 1000) * input.deckDensity).toFixed(2)} kPa`} />
           </div>
         </div>
-        <Check checked={input.stringers} onChange={(v) => set('stringers', v)} title="Longitudinal stringers simply supported on the cross girders, carrying the deck and pedestrian load. They take no axial force from the chords.">
-          Stringers
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label="Stringers"
+            value={input.stringerCount}
+            onChange={(v) => set('stringerCount', Math.max(0, Math.round(v)))}
+            min={0}
+            max={12}
+            step={1}
+            title="Longitudinal stringers simply supported on the cross girders, carrying the deck and pedestrian load by tributary width. They take no axial force from the chords. With none, the deck spans between the bottom chords."
+          />
+          {input.stringerCount > 0 ? (
+            <NumberField label="Stringer Spacing (m)" value={input.stringerSpacing} onChange={(v) => set('stringerSpacing', v)} min={0.2} max={3} step={0.05} decimals={2} />
+          ) : (
+            <NumberField label="Stringer Spacing (m)" value={undefined} onChange={() => {}} disabled disabledText="–" />
+          )}
+        </div>
+        <Check
+          checked={input.stringerCount === 0 || input.chordsSupportDeck}
+          disabled={input.stringerCount === 0}
+          onChange={(v) => set('chordsSupportDeck', v)}
+          title="The deck also bears on the bottom chords, which then carry the width halfway to the outer stringers. Without stringers the deck always spans between the bottom chords."
+        >
+          Bottom Chords Support Deck
         </Check>
-        {input.stringers && (
-          <div className="nested">
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField label="Number" value={input.stringerCount} onChange={(v) => set('stringerCount', Math.round(v))} min={1} max={12} step={1} />
-              <NumberField label="Spacing (m)" value={input.stringerSpacing} onChange={(v) => set('stringerSpacing', v)} min={0.2} max={3} step={0.05} decimals={2} />
-            </div>
-            <Readout label="Outer Stringers (Centres)" value={`±${(((Math.max(1, Math.round(input.stringerCount)) - 1) * input.stringerSpacing) / 2).toFixed(3)} m`} title="From the bridge centreline" />
-          </div>
-        )}
+        <Readout
+          label="Deck Span (Max)"
+          value={`${deckSpan(model).toFixed(3)} m`}
+          title="Largest span of the deck across the bridge between its supports (centres), or the overhang beyond the outer stringers"
+        />
         <NumberField label="Services (kN/m)" value={input.services} onChange={(v) => set('services', v)} min={0} max={10} step={0.1} decimals={2} title="Total for the bridge, shared equally by the bottom chords" />
         <div>
           <label className="label">Handrails (Each Side)</label>
@@ -184,7 +201,7 @@ export const InputPanels: React.FC<{
       <section className="panel">
         <h2 className="panel-title" title="Section depth direction: the direction of the section depth (d) in the bridge.">Sections</h2>
         {GROUPS.filter((g) => g !== 'vertical' || input.trussType !== 'warren')
-          .filter((g) => g !== 'stringer' || input.stringers)
+          .filter((g) => g !== 'stringer' || input.stringerCount > 0)
           .map((g, i) =>
             g === 'endPost' ? (
               <div key={g} className="section !space-y-1">
@@ -223,6 +240,15 @@ export const InputPanels: React.FC<{
     </>
   );
 };
+
+/** Largest span of the deck across the bridge between its supports, or its overhang beyond the outer supports. */
+function deckSpan(model: BridgeModel): number {
+  const ys = model.geo.deckShares.map((d) => d.y);
+  let span = 0;
+  for (let i = 1; i < ys.length; i++) span = Math.max(span, ys[i] - ys[i - 1]);
+  const overhang = model.geo.deckWidth / 2 - Math.max(...ys.map(Math.abs));
+  return Math.max(span, overhang);
+}
 
 const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; first: boolean }> = ({ group, input, set, first }) => {
   const g = input.sections[group];
@@ -465,7 +491,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
     />
     );
   };
-  const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'stringer' || input.stringers)), [input.trussType, input.stringers]);
+  const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'stringer' || input.stringerCount > 0)), [input.trussType, input.stringerCount]);
   return (
     <section className="panel">
       <h2 className="panel-title" title="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">

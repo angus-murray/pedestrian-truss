@@ -39,7 +39,7 @@ test('midspan deflection is close to the truss estimate and buckling factors exc
 });
 
 test('stringer deflection relative to the cross girders matches 5wL⁴/384EI', () => {
-  const inp = { ...DEFAULT_INPUT, deckType: 'frp' as const, deckThickness: 38, deckDensity: 6, stringers: true };
+  const inp = { ...DEFAULT_INPUT, deckType: 'frp' as const, deckThickness: 38, deckDensity: 6, stringerCount: 4, chordsSupportDeck: false };
   const { model: m, results: r } = runAnalysis(inp);
   const s = r.sls.find((x) => x.stringer)!.stringer!;
   const st = m.members.find((x) => x.group === 'stringer')!;

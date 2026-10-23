@@ -320,7 +320,8 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     ['Deck', `${DECK_INFO[input.deckType].label}, ${f0(input.deckThickness)} mm`],
     ['Screens', input.screens ? `${f2(input.screenHeight)} m above deck` : 'None'],
     ['Handrails', geo.handrailHeights.map((h) => `${f2(h)} m`).join(' and ') + ' above deck'],
-    ['Stringers', input.stringers ? `${geo.stringerYs.length} at ${f2(input.stringerSpacing)} m` : 'None'],
+    ['Stringers', geo.stringerYs.length ? `${geo.stringerYs.length} at ${f2(input.stringerSpacing)} m` : 'None'],
+    ['Deck supported on', geo.stringerYs.length ? (input.chordsSupportDeck ? 'Bottom chords and stringers' : 'Stringers') : 'Bottom chords'],
     ['Diagonal ends', input.webPinned ? 'Pinned' : 'Rigid']
   ]);
 

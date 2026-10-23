@@ -3,7 +3,7 @@
 Design and checking of steel pony (half-through) truss footbridges to AS 5100, by Angus Murray.
 
 The bridge is two parallel trusses (Warren, Pratt or Howe) with a deck on cross girders at the bottom chord panel
-points, optionally on stringers. The top chords are restrained laterally only by the U-frames formed by the verticals and cross girders.
+points; the deck spans across between the bottom chords, the stringers, or both. The top chords are restrained laterally only by the U-frames formed by the verticals and cross girders.
 From the inputs (span, truss type, panel length, depth, clear width, handrail width, sections, deck, screens and
 loads) the app builds a 3D frame model and runs, in the browser:
 

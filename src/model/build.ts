@@ -66,6 +66,8 @@ export interface Geometry {
   deckTop: number;
   /** Handrail heights above the deck (m), lowest first. */
   handrailHeights: number[];
+  /** Deck supports across the bridge (y) and the width each carries (deck and clear width), m. */
+  deckShares: { y: number; deck: number; clear: number }[];
   deckWidth: number;
   clearWidth: number;
   handrailY: number; // y of the inside face of the handrail (+ side)
@@ -107,8 +109,8 @@ export function effectiveSections(input: BridgeInput): BridgeInput['sections'] {
 
 /** Stringer positions across the deck (m from the centreline). */
 export function stringerPositions(input: BridgeInput): number[] {
-  if (!input.stringers) return [];
-  const n = Math.max(1, Math.round(input.stringerCount));
+  const n = Math.max(0, Math.round(input.stringerCount));
+  if (!n) return [];
   return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * input.stringerSpacing);
 }
 
@@ -326,29 +328,29 @@ export function buildModel(input: BridgeInput): BridgeModel {
     steelMass += (w * m.length) / g;
     addUdl('G1s', m, [0, 0, -w]);
   }
-  // deck and pedestrian load: one way onto the cross girders, or across onto the stringers
-  const cgs = byGroup('crossGirder');
+  // deck, pedestrian load and wind uplift: the deck spans across the bridge between its supports (the bottom
+  // chords and/or the stringers); each support carries the width halfway to its neighbours, the outer ones to the
+  // edge of the loaded width
   const deckQ = deckT * input.deckDensity;
-  const tribRange = (k: number, x0: number, x1: number) => Math.max(0, Math.min(X(k) + a / 2, x1, L) - Math.max(X(k) - a / 2, x0, 0));
-  if (stringerYs.length) {
-    // width carried by each stringer within [y0, y1]: halfway to its neighbours, the outer ones to the edge
-    const share = (i: number, y0: number, y1: number) => {
-      const lo = i === 0 ? -Infinity : (stringerYs[i - 1] + stringerYs[i]) / 2;
-      const hi = i === stringerYs.length - 1 ? Infinity : (stringerYs[i] + stringerYs[i + 1]) / 2;
-      return Math.max(0, Math.min(hi, y1) - Math.max(lo, y0));
-    };
-    for (const m of byGroup('stringer')) {
-      const i = stringerYs.findIndex((y) => Math.abs(y - m.a[1]) < 1e-6);
-      addUdl('G1d', m, [0, 0, -deckQ * share(i, -deckWidth / 2, deckWidth / 2)]);
-      addUdl('Q', m, [0, 0, -input.pedestrian * share(i, -input.clearWidth / 2, input.clearWidth / 2)]);
+  const chordSupport = !stringerYs.length || input.chordsSupportDeck;
+  const deckSupports = [
+    ...(chordSupport ? [{ y: -s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'A') }, { y: s / 2, members: members.filter((m) => m.group === 'bottomChord' && m.side === 'B') }] : []),
+    ...stringerYs.map((y) => ({ y, members: members.filter((m) => m.group === 'stringer' && Math.abs(m.a[1] - y) < 1e-6) }))
+  ].sort((p, q) => p.y - q.y);
+  const share = (i: number, y0: number, y1: number) => {
+    const lo = i === 0 ? -Infinity : (deckSupports[i - 1].y + deckSupports[i].y) / 2;
+    const hi = i === deckSupports.length - 1 ? Infinity : (deckSupports[i].y + deckSupports[i + 1].y) / 2;
+    return Math.max(0, Math.min(hi, y1) - Math.max(lo, y0));
+  };
+  const deckShares = deckSupports.map((sup, i) => ({ y: sup.y, deck: share(i, -deckWidth / 2, deckWidth / 2), clear: share(i, -input.clearWidth / 2, input.clearWidth / 2) }));
+  deckSupports.forEach((sup, i) => {
+    const { deck, clear } = deckShares[i];
+    for (const m of sup.members) {
+      addUdl('G1d', m, [0, 0, -deckQ * deck]);
+      addUdl('Q', m, [0, 0, -input.pedestrian * clear]);
+      addUdl('W', m, [0, 0, input.liftCoeff * deck]);
     }
-  } else
-    cgs.forEach((m, k) => {
-      const len = m.length;
-      const t = tribRange(k, 0, L);
-      addUdl('G1d', m, [0, 0, (-deckQ * deckWidth * t) / len]);
-      addUdl('Q', m, [0, 0, (-input.pedestrian * input.clearWidth * t) / len]);
-    });
+  });
   // screens, handrails, services on the bottom chords
   const lineG2 = (input.screens ? input.screenLoad * input.screenHeight : 0) + input.handrailLoad * handrailHeights.length + input.services / 2;
   for (const m of byGroup('bottomChord')) addUdl('G2', m, [0, 0, -lineG2]);
@@ -374,7 +376,6 @@ export function buildModel(input: BridgeInput): BridgeModel {
     if (m.group === 'topChord') addUdl('W', m, [0, (cd * trussDepth) / 2, 0]);
     if (m.group === 'bottomChord') addUdl('W', m, [0, cd * (trussDepth / 2 + cgExposed), 0]);
   }
-  cgs.forEach((m, k) => addUdl('W', m, [0, 0, (input.liftCoeff * deckWidth * tribRange(k, 0, L)) / m.length]));
 
   // barrier load at the top handrail on the web members that carry the handrail brackets, outwards
   if (input.barrier > 0)
@@ -426,7 +427,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
   if (ang < 30 || ang > 65) warnings.push(`Diagonals are at ${ang.toFixed(0)}° to the horizontal (30° to 65° is usual).`);
 
   const geo: Geometry = {
-    L, n, a, s, chordWidth, H, dTC, dBC, wTC, wBC, zCG, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckWidth,
+    L, n, a, s, chordWidth, H, dTC, dBC, wTC, wBC, zCG, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckShares, deckWidth,
     clearWidth: input.clearWidth,
     handrailY: input.clearWidth / 2,
     topX0: topXs[0],

@@ -157,10 +157,18 @@ export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, Cut
   return [endCut(m.a), endCut(m.b)];
 }
 
-/** Half the transverse width of the web members (inside face of the truss at s/2 minus this). */
+/**
+ * Inward projection of the truss from its centreline (m): half the transverse width of the web member that sticks
+ * out furthest (verticals, diagonals, end posts), and of the top chord when the screen reaches it. The screens and
+ * handrail brackets are set out from this face so that they clear every member.
+ */
 export function webHalfWidth(model: BridgeModel): number {
-  const w = model.members.find((x) => x.group === 'vertical') ?? model.members.find((x) => x.group === 'diagonal') ?? model.members.find((x) => x.group === 'endPost');
-  return w ? (Math.abs(w.depthDir[1]) > 0.5 ? w.sp.d : w.sp.b) / 2000 : model.geo.wTC / 2;
+  const { geo, input } = model;
+  const halfY = (m: BridgeModel['members'][number]) => (Math.abs(m.depthDir[1]) > 0.5 ? m.sp.d : m.sp.b) / 2000;
+  let w = 0;
+  for (const m of model.members) if (m.group === 'vertical' || m.group === 'diagonal' || m.group === 'endPost') w = Math.max(w, halfY(m));
+  if (input.screens && geo.deckTop + input.screenHeight > geo.H - geo.dTC / 2) w = Math.max(w, geo.wTC / 2);
+  return w || geo.wTC / 2;
 }
 
 /**

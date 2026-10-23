@@ -54,8 +54,8 @@ export interface BridgeInput {
   deckType: DeckType;
   deckThickness: number; // mm
   deckDensity: number; // kN/m³
-  stringers: boolean;
-  stringerCount: number;
+  stringerCount: number; // 0: the deck spans between the bottom chords
+  chordsSupportDeck: boolean; // with stringers: the bottom chords also support the deck
   stringerSpacing: number; // m
   screens: boolean;
   screenHeight: number; // m above deck
@@ -141,8 +141,8 @@ export const DEFAULT_INPUT: BridgeInput = {
   deckType: 'concrete',
   deckThickness: 150,
   deckDensity: 25,
-  stringers: false,
-  stringerCount: 4,
+  stringerCount: 0,
+  chordsSupportDeck: true,
   stringerSpacing: 0.9,
   screens: true,
   screenHeight: 1.2,

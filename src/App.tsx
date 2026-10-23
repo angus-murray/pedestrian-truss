@@ -10,7 +10,7 @@ import { Viewer3D, type ViewCapture } from './components/viewer/Viewer3D';
 import { AboutPage } from './components/About';
 import { generateReport, REPORT_INFO_FIELDS, type ReportInfo } from './utils/report';
 
-const STORE = 'pedtruss-input-v4';
+const STORE = 'pedtruss-input-v5';
 
 /** Fills in any inputs missing from a saved file (older versions) with the defaults. */
 function withDefaults(x: Partial<BridgeInput>): BridgeInput {
