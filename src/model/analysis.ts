@@ -527,7 +527,8 @@ function interp(m: Member, sf: StationForces, d: number, f: number) {
  * Cl. 9.6.4.1.3): δ = d1³/(3EI1) + s d2²/(2EI2) + f d2² for a vertical on a cross girder (cross girder in single
  * curvature, which is conservative), with f the flexibility of the vertical to cross girder joint. In a Warren truss
  * the U-frame at a top chord node is the two diagonals meeting there, each a cantilever of its inclined length L_d,
- * on two cross girders: δ = L_d³/(6EI1) + s d2²/(4EI2) + f d2²/2.
+ * on two cross girders: δ = L_d³/(6EI1) + s d2²/(4EI2) + f d2²/2. Lengths are node to node, as for all members:
+ * d1 = d2 = H (bottom chord node to top chord node) and L_d = √(H² + (a/2)²).
  */
 export function uFrameLength(model: BridgeModel): { le: number; delta: number; d1: number; d2: number; I1: number; I2: number; Ic: number; Ld: number | null } {
   const { geo, input } = model;
@@ -540,12 +541,11 @@ export function uFrameLength(model: BridgeModel): { le: number; delta: number; d
   const I1 = (secs[web.group].rotate ? web.sp.Iy : web.sp.Ix) * 1e-12;
   const I2 = (input.sections.crossGirder.rotate ? cg.sp.Iy : cg.sp.Ix) * 1e-12;
   const Ic = (input.sections.topChord.rotate ? tc.sp.Ix : tc.sp.Iy) * 1e-12;
-  const d1 = geo.H - geo.cgTop, d2 = geo.H - geo.zCG;
+  const d1 = geo.H, d2 = geo.H;
   const f = input.uFrameJointFlex / 1000; // rad/kNm
   let delta: number, Ld: number | null = null;
   if (warren) {
-    const sinA = geo.H / Math.hypot(geo.H, geo.a / 2);
-    Ld = d1 / sinA;
+    Ld = Math.hypot(geo.H, geo.a / 2);
     delta = Ld ** 3 / (6 * E * I1) + (geo.s * d2 * d2) / (4 * E * I2) + (f * d2 * d2) / 2;
   } else delta = d1 ** 3 / (3 * E * I1) + (geo.s * d2 * d2) / (2 * E * I2) + f * d2 * d2;
   const le = Math.max(geo.a, 2.5 * (E * Ic * geo.a * delta) ** 0.25);
