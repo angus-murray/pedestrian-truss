@@ -63,6 +63,8 @@ export interface CheckItem {
 export interface MemberDesign {
   member: number;
   util: number;
+  /** Largest utilisation without the 999% display cap (to rank sections in the optimiser). */
+  utilRaw: number;
   combo: number;
   governing: string;
   N: number; // kN, tension positive
@@ -156,7 +158,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const warnings: string[] = [...model.warnings];
   const solver = new FrameSolver(model.fe);
   progress(`Factorising stiffness (${solver.nEq} DOF)`);
-  const bad = solver.factor();
+  const bad = model.errors[0] ?? solver.factor();
   const combos = expandCombos(input);
   const nNodes = model.fe.nodes.length;
   const empty: AnalysisResults = {
@@ -343,9 +345,10 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
 
   // ---------------------------------------------------------- serviceability
   const sls: SlsResult[] = [];
-  // the truss deflection excludes the stringers between their supports (checked on their own below)
-  const stringerOnly = new Uint8Array(nNodes);
-  for (const m of model.members) if (m.group === 'stringer') for (const nd of m.nodes.slice(1, -1)) stringerOnly[nd] = 1;
+  // the bridge deflection is that of the truss members (chords, verticals, diagonals, end posts) only; the
+  // cross girders and stringers are not included (the stringers are checked on their own below)
+  const trussNode = new Uint8Array(nNodes);
+  for (const m of model.members) if (m.group === 'topChord' || m.group === 'bottomChord' || m.group === 'vertical' || m.group === 'diagonal' || m.group === 'endPost') for (const nd of m.nodes) trussNode[nd] = 1;
   const stringers = model.members.filter((m) => m.group === 'stringer');
   combos.forEach((c, ci) => {
     if (c.type !== 'SLS') return;
@@ -364,10 +367,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
       }
     }
     for (let nd = 0; nd < nNodes; nd++) {
-      if (stringerOnly[nd]) {
-        maxLat = Math.max(maxLat, Math.abs(u[nd * 6 + 1]));
-        continue;
-      }
+      if (!trussNode[nd]) continue;
       if (-u[nd * 6 + 2] > maxVert) {
         maxVert = -u[nd * 6 + 2];
         nodeAt = nd;
@@ -441,6 +441,7 @@ export function designMember(
   const uf = set.method === 'uframe' && m.group === 'topChord' ? uFrameLength(model) : null;
   let best: MemberDesign | null = null;
   const byCombo: number[] = [];
+  let utilRaw = 0;
   combos.forEach((c, ci) => {
     if (c.type !== 'ULS') return;
     const sf = forces[ci][m.id];
@@ -534,10 +535,12 @@ export function designMember(
     items.push({ key: 'Cm', label: compression ? 'Combined Member (Compression)' : 'Combined Member (Tension)', clause: 'Cl. 8.4', action: memberComb, capacity: 1, unit: '', util: Math.min(9.99, memberComb) });
     const gov = items.reduce((x, y) => (y.util > x.util ? y : x));
     byCombo[ci] = gov.util;
+    utilRaw = Math.max(utilRaw, ...items.map((it) => (it.unit ? (it.capacity > 0 ? it.action / it.capacity : it.action > 1e-9 ? Infinity : 0) : it.action)));
     if (!best || gov.util > best.util)
       best = {
         member: m.id,
         util: gov.util,
+        utilRaw: 0,
         combo: ci,
         governing: gov.label,
         N,
@@ -565,9 +568,10 @@ export function designMember(
   });
   if (!best)
     best = {
-      member: m.id, util: 0, combo: -1, governing: '—', N: 0, Mx: 0, My: 0, Vy: 0, Vx: 0, comp: null, compMajor: null, compMinor: null,
+      member: m.id, util: 0, utilRaw: 0, combo: -1, governing: '—', N: 0, Mx: 0, My: 0, Vy: 0, Vx: 0, comp: null, compMajor: null, compMinor: null,
       leMethod: '', leMajor: 0, leMinor: 0, mode: null, lambdaCr: null, delta: 1, phiNt, phiMsx, phiMsy, phiMbx: phiMsx, alphaM: 1, items: [], byCombo
     };
   (best as MemberDesign).byCombo = byCombo;
+  (best as MemberDesign).utilRaw = utilRaw;
   return best;
 }

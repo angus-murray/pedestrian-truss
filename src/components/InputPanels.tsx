@@ -217,7 +217,7 @@ export const InputPanels: React.FC<{
           type="button"
           className="btn w-full"
           onClick={onOptimise}
-          disabled={solving}
+          disabled={solving || model.errors.length > 0}
           title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most 90% (and the chords stiff enough for the deflection limit), in up to four analysis iterations. The model is then solved."
         >
           <Wand2 className="w-3.5 h-3.5" />

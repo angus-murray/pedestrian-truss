@@ -76,6 +76,7 @@ export const Results: React.FC<{
           {warnings.length > 0 && <StatusChip kind="warn">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</StatusChip>}
           {chip}
         </ResultsHeader>
+        {model.errors.length > 0 && <Banner kind="error" title="Input errors" items={model.errors} />}
         {error && <Banner kind="error" title="Solver error">{error}</Banner>}
         {r && r.errors.length > 0 && <Banner kind="error" title="Analysis errors" items={r.errors} />}
         {warnings.length > 0 && <Banner kind="warning" title="Warnings" items={warnings} />}

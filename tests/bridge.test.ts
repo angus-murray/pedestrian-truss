@@ -66,3 +66,12 @@ test('vertical vibration to AS 5100.2 Cl. 13.4', () => {
   const est = (0.7 * DEFAULT_INPUT.span ** 3) / (48 * 200e6 * A * DEFAULT_INPUT.depth ** 2);
   assert.ok(v.y > est && v.y < 1.3 * est, `${v.y} vs ${est}`);
 });
+
+test('stringers outside the cross girders are an input error, not a mechanism', async () => {
+  const { buildModel } = await import('../src/model/build');
+  const m = buildModel({ ...DEFAULT_INPUT, stringerCount: 5, stringerSpacing: 0.9 });
+  assert.equal(m.errors.length, 1);
+  const r = runAnalysis({ ...DEFAULT_INPUT, stringerCount: 5, stringerSpacing: 0.9 }).results;
+  assert.ok(r.errors[0].includes('outside the cross girders'));
+  assert.equal(buildModel({ ...DEFAULT_INPUT, stringerCount: 5, stringerSpacing: 0.7 }).errors.length, 0);
+});

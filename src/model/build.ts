@@ -94,6 +94,8 @@ export interface BridgeModel {
   topNodes: { node: number; side: 'A' | 'B'; x: number }[];
   steelMass: number; // t
   warnings: string[];
+  /** Input errors that stop the analysis (for example stringers outside the cross girders). */
+  errors: string[];
 }
 
 const GAMMA_STEEL = 77; // kN/m³ (7850 kg/m³)
@@ -112,6 +114,23 @@ export function stringerPositions(input: BridgeInput): number[] {
   const n = Math.max(0, Math.round(input.stringerCount));
   if (!n) return [];
   return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * input.stringerSpacing);
+}
+
+/**
+ * Error message when the outer stringers are not on the cross girders between the bottom chords (the stringers
+ * must be inside the inside faces of the chords, with 20 mm to spare), or null.
+ */
+export function stringerFitError(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): string | null {
+  const ys = stringerPositions(input);
+  if (!ys.length) return null;
+  const secs = effectiveSections({ ...input, sections });
+  const tc = sectionProps(secs.topChord), bc = sectionProps(secs.bottomChord);
+  const wTC = hdim(tc, !secs.topChord.rotate), wBC = hdim(bc, !secs.bottomChord.rotate);
+  const s = input.clearWidth + (2 * input.handrailWidth) / 1000 + Math.max(wTC, wBC);
+  const limit = s / 2 - wBC / 2 - 0.02;
+  const outer = Math.max(...ys.map(Math.abs));
+  if (outer <= limit) return null;
+  return `The outer stringers (±${outer.toFixed(3)} m from the centreline) are outside the cross girders, which span ±${limit.toFixed(3)} m between the bottom chords. Reduce the number or the spacing of the stringers.`;
 }
 
 export function panelCount(input: BridgeInput): number {
@@ -422,7 +441,9 @@ export function buildModel(input: BridgeInput): BridgeModel {
 
   if (deckTop + hrTop > H + dTC / 2 + 0.3) warnings.push('The top handrail is more than 300 mm above the top of the top chord.');
   if (hrFrac >= 1) warnings.push('The top handrail is above the top chord: the barrier load is applied at the top chord.');
-  if (stringerYs.length && Math.abs(stringerYs[0]) > deckWidth / 2 - 0.05) warnings.push('The outer stringers are outside the deck width; reduce the number or spacing of the stringers.');
+  const errors: string[] = [];
+  const fit = stringerFitError(input);
+  if (fit) errors.push(fit);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
   if (ang < 30 || ang > 65) warnings.push(`Diagonals are at ${ang.toFixed(0)}° to the horizontal (30° to 65° is usual).`);
 
@@ -436,5 +457,5 @@ export function buildModel(input: BridgeInput): BridgeModel {
     solidity,
     windDepth: cd * windDepth
   };
-  return { input, geo, members, fe: { nodes, elements, restraints }, elMember: Int32Array.from(elMember), cases, elLoads, nodeMass, supports, topNodes, steelMass, warnings };
+  return { input, geo, members, fe: { nodes, elements, restraints }, elMember: Int32Array.from(elMember), cases, elLoads, nodeMass, supports, topNodes, steelMass, warnings, errors };
 }

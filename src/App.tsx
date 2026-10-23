@@ -81,7 +81,7 @@ export default function App() {
       }
     });
 
-  const blocked = model.members.length === 0 ? 'The model has no members.' : undefined;
+  const blocked = model.members.length === 0 ? 'The model has no members.' : model.errors[0];
   const solveState = solving ? 'solving' : blocked ? 'blocked' : results ? 'solved' : 'idle';
   const actions = (
     <div className="hidden sm:flex items-center gap-1">
