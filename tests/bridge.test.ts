@@ -158,3 +158,28 @@ test('optimiser keeps the section types and the web members within the chord wid
   assert.ok(transverseWidth(r.sections.diagonal, 'web') <= chord + 1e-6);
   assert.ok(Object.values(r.governs).length > 0);
 });
+
+test('slenderness limit of the truss members: L/r ≤ 300 (AISC 360-16 D1)', async () => {
+  const { sectionsOf } = await import('../src/data/sections');
+  const small = sectionsOf('SHS').slice().sort((a, b) => a.massPerMetre - b.massPerMetre)[0].name;
+  const inp = { ...DEFAULT_INPUT, sections: { ...DEFAULT_INPUT.sections, diagonal: { ...DEFAULT_INPUT.sections.diagonal, name: small } } };
+  const r = runAnalysis(inp);
+  const d = r.results.design.find((x) => r.model.members[x.member].group === 'diagonal')!;
+  const m = r.model.members[d.member];
+  const it = d.items.find((x) => x.key === 'Lr')!;
+  assert.ok(Math.abs(it.action - (m.length * 1000) / Math.min(m.sp.rx, m.sp.ry)) < 1e-9);
+  assert.equal(it.capacity, 300);
+  // not applied to the cross girders, stringers or bracing
+  const cg = r.results.design.find((x) => r.model.members[x.member].group === 'crossGirder')!;
+  assert.ok(!cg.items.some((x) => x.key === 'Lr'));
+});
+
+test('semi-rigid joints: the springs soften the structure, rigid is the default', () => {
+  const lam = (jointModel: 'rigid' | 'ec3' | 'flex', f = 0) => runAnalysis({ ...DEFAULT_INPUT, restraintPct: 0, jointModel, uFrameJointFlex: f }).results.buckling[0].values[0];
+  const rigid = lam('rigid');
+  assert.ok(Math.abs(rigid - results.buckling[0].values[0]) < 1e-9);
+  const ec3 = lam('ec3'), flex = lam('flex', 1);
+  assert.ok(ec3 < rigid && flex < ec3, `${rigid} ${ec3} ${flex}`);
+  // f = 0 is rigid
+  assert.ok(Math.abs(lam('flex', 0) - rigid) < 1e-9);
+});

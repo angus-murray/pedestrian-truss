@@ -67,7 +67,7 @@ export interface CheckItem {
   clause: string;
   action: number;
   capacity: number;
-  unit: 'kN' | 'kNm' | '';
+  unit: 'kN' | 'kNm' | 'L/r' | '';
   util: number;
 }
 
@@ -188,6 +188,8 @@ export interface AnalysisResults {
 }
 
 const PARTICIPATION_FLOOR = 1e-12;
+/** Members of the trusses, for the slenderness limit. */
+const TRUSS_GROUPS: GroupKey[] = ['topChord', 'bottomChord', 'endPost', 'vertical', 'diagonal'];
 /** Margin on U ≤ λ G for a member to count as buckling (not restraining) in a mode. */
 const RESTRAINED = 1.05;
 
@@ -714,6 +716,10 @@ export function designMember(
       ? Nabs / (comp?.phiNc ?? phiNs) + MxD / mb.phiMb + MyD / phiMsy
       : Nabs / phiNt + Mx / mb.phiMb + My / phiMsy;
     items.push({ key: 'Cm', label: compression ? 'Combined Member (Compression)' : 'Combined Member (Tension)', clause: 'Cl. 8.4', action: memberComb, capacity: 1, unit: '', util: Math.min(9.99, memberComb) });
+    // largest slenderness of the truss members, tension or compression (AISC 360-16 Section D1, User Note: L/r
+    // preferably not above 300), with L the length between nodes and r the least radius of gyration
+    if (TRUSS_GROUPS.includes(m.group as GroupKey) && input.maxSlenderness > 0)
+      add('Lr', 'Slenderness L/r', 'AISC 360 D1', (L * 1000) / Math.min(rx, ry), input.maxSlenderness, 'L/r');
     const gov = items.reduce((x, y) => (y.util > x.util ? y : x));
     byCombo[ci] = gov.util;
     utilRaw = Math.max(utilRaw, ...items.map((it) => (it.unit ? (it.capacity > 0 ? it.action / it.capacity : it.action > 1e-9 ? Infinity : 0) : it.action)));

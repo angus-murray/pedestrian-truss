@@ -33,7 +33,8 @@ export function gradesFor(category: SectionCategory): SteelGrade[] {
 }
 
 export function defaultGrade(category: SectionCategory): string {
-  return category === 'SHS' || category === 'RHS' || category === 'CHS' ? 'Grade C350L0' : 'Grade 300';
+  if (category === 'SHS' || category === 'RHS') return 'Grade C450L0';
+  return category === 'CHS' ? 'Grade C350L0' : 'Grade 300';
 }
 
 export function findGrade(category: SectionCategory, name: string): SteelGrade {

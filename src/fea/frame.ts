@@ -32,6 +32,12 @@ export interface FEElement {
   relJ?: boolean;
   /** Axial force released at end j (a sliding end). */
   relAxialJ?: boolean;
+  /**
+   * Rotational springs (semi-rigid joints) at end i / end j, about local y and local z (kNm/rad), in series between
+   * the node and the element end. Ignored where the end is released.
+   */
+  springI?: [number, number];
+  springJ?: [number, number];
 }
 
 /** Uniform load on an element, global components (kN/m). */
@@ -116,7 +122,21 @@ export function localGeometric(e: FEElement, L: number, N: number): Float64Array
 }
 
 /** Released local DOFs of an element. */
-const releasedDofs = (e: FEElement) => [...(e.relI ? [4, 5] : []), ...(e.relAxialJ ? [6] : []), ...(e.relJ ? [10, 11] : [])];
+/** End springs of an element as local DOF and stiffness: a release is a spring of zero stiffness. */
+const endSprings = (e: FEElement): { dof: number; k: number }[] => {
+  const out: { dof: number; k: number }[] = [];
+  const end = (rel: boolean | undefined, sp: [number, number] | undefined, dy: number) => {
+    if (rel) out.push({ dof: dy, k: 0 }, { dof: dy + 1, k: 0 });
+    else if (sp)
+      sp.forEach((k, a) => {
+        if (Number.isFinite(k) && k > 0) out.push({ dof: dy + a, k });
+      });
+  };
+  end(e.relI, e.springI, 4);
+  if (e.relAxialJ) out.push({ dof: 6, k: 0 });
+  end(e.relJ, e.springJ, 10);
+  return out;
+};
 
 /** Solves a small dense system in place (Gaussian elimination with partial pivoting). */
 function solveDense(A: number[][], B: number[][]): number[][] {
@@ -143,16 +163,35 @@ function solveDense(A: number[][], B: number[][]): number[][] {
  * Condensation of released DOFs: u_full = T u (released DOFs expressed in terms of the others), so a condensed
  * matrix is Tᵀ K T. Returns null for an element without releases.
  */
-function releaseTransform(k: Float64Array, rel: number[]): Float64Array | null {
-  if (!rel.length) return null;
+/**
+ * Condensation of end springs (and releases, zero stiffness). At each spring DOF r the element end has its own
+ * displacement φ_r, joined to the node by the spring k_r. With the element displacements u_e = T u (u the node
+ * displacements), φ = (K_rr + k)⁻¹ (k u_r − K_rc u_c), and the stiffness at the nodes is Tᵀ K T plus the spring
+ * energy Σ k_r (u_r − φ_r)².
+ */
+function springTransform(k: Float64Array, sp: { dof: number; k: number }[]): { T: Float64Array; kc: Float64Array } | null {
+  if (!sp.length) return null;
+  const rel = sp.map((s) => s.dof);
   const keep = Array.from({ length: 12 }, (_, i) => i).filter((i) => !rel.includes(i));
-  const Krr = rel.map((r) => rel.map((c) => k[r * 12 + c]));
-  const Krc = rel.map((r) => keep.map((c) => k[r * 12 + c]));
-  const X = solveDense(Krr, Krc); // K_rr⁻¹ K_rc
+  const A = rel.map((r, a) => rel.map((c, b) => k[r * 12 + c] + (a === b ? sp[a].k : 0)));
+  // right-hand sides: −K_rc for the kept DOFs, k_r for the node DOF of each spring
+  const B = rel.map((r, a) => [...keep.map((c) => -k[r * 12 + c]), ...rel.map((_, b) => (a === b ? sp[a].k : 0))]);
+  const X = solveDense(A, B);
   const T = new Float64Array(144);
   for (const i of keep) T[i * 12 + i] = 1;
-  rel.forEach((r, a) => keep.forEach((c, b) => (T[r * 12 + c] = -X[a][b])));
-  return T;
+  rel.forEach((r, a) => {
+    keep.forEach((c, b) => (T[r * 12 + c] = X[a][b]));
+    rel.forEach((c, b) => (T[r * 12 + c] = X[a][keep.length + b]));
+  });
+  const kc = congruence(k, T);
+  sp.forEach(({ dof: r, k: kr }) => {
+    if (!kr) return;
+    // spring elongation u_r − φ_r = (e_r − T_r) u
+    const d = new Float64Array(12);
+    for (let c = 0; c < 12; c++) d[c] = (c === r ? 1 : 0) - T[r * 12 + c];
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) kc[i * 12 + j] += kr * d[i] * d[j];
+  });
+  return { T, kc };
 }
 
 /** Tᵀ K T for 12 × 12 matrices. */
@@ -221,10 +260,11 @@ function equivalentLoads(q: Vec3, L: number): Float64Array {
 interface ElementData {
   R: number[][];
   L: number;
-  k: Float64Array; // local, condensed (released rows/cols zero)
+  k: Float64Array; // local, condensed for the end springs and releases
   kFull: Float64Array;
   T: Float64Array | null;
   dofs: Int32Array; // global equation numbers (−1 restrained)
+  springs: { dof: number; k: number }[];
 }
 
 export interface FrameModel {
@@ -284,14 +324,16 @@ export class FrameSolver {
     this.els = elements.map((e) => {
       const { R, L } = elementAxes(nodes, e);
       const kFull = localStiffness(e, L);
-      const T = releaseTransform(kFull, releasedDofs(e));
-      const k = T ? congruence(kFull, T) : kFull;
+      const springs = endSprings(e);
+      const st = springTransform(kFull, springs);
+      const T = st ? st.T : null;
+      const k = st ? st.kc : kFull;
       const dofs = new Int32Array(12);
       for (let d = 0; d < 6; d++) {
         dofs[d] = this.eq[e.i * 6 + d];
         dofs[6 + d] = this.eq[e.j * 6 + d];
       }
-      return { R, L, k, kFull, T, dofs };
+      return { R, L, k, kFull, T, dofs, springs };
     });
 
     const first = new Int32Array(n);
@@ -386,11 +428,11 @@ export class FrameSolver {
     const ql: Vec3 = loads ? [dot(ed.R[0] as Vec3, loads), dot(ed.R[1] as Vec3, loads), dot(ed.R[2] as Vec3, loads)] : [0, 0, 0];
     const P = equivalentLoads(ql, ed.L);
     if (ed.T) {
-      // recover the released rotations: u_r = K_rr⁻¹ (P_r − K_rc u_c)
-      const rel = releasedDofs(e);
+      // recover the element end displacements at the springs and releases: φ = (K_rr + k)⁻¹ (P_r + k u_r − K_rc u_c)
+      const rel = ed.springs.map((s) => s.dof);
       const keep = Array.from({ length: 12 }, (_, i) => i).filter((i) => !rel.includes(i));
-      const Krr = rel.map((r) => rel.map((c) => ed.kFull[r * 12 + c]));
-      const rhs = rel.map((r) => [P[r] - keep.reduce((s, c) => s + ed.kFull[r * 12 + c] * ul[c], 0)]);
+      const Krr = rel.map((r, a) => rel.map((c, b) => ed.kFull[r * 12 + c] + (a === b ? ed.springs[a].k : 0)));
+      const rhs = rel.map((r, a) => [P[r] + ed.springs[a].k * ul[r] - keep.reduce((s, c) => s + ed.kFull[r * 12 + c] * ul[c], 0)]);
       const ur = solveDense(Krr, rhs);
       ul = Float64Array.from(ul);
       rel.forEach((r, a) => (ul[r] = ur[a][0]));

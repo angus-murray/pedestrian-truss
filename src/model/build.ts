@@ -138,6 +138,23 @@ export function stringerFitError(input: BridgeInput, sections: BridgeInput['sect
 }
 
 /**
+ * Rotational springs (kNm/rad, about the major and minor axes) at the welded ends of the verticals, diagonals and
+ * cross girders, or undefined for a rigid joint:
+ *  - 'flex': the joint flexibility f (rad/kNm, the same f as the U-frame method), k = 1/f about both axes;
+ *  - 'ec3': the least stiffness at which EN 1993-1-8 Cl. 5.2.2.5 still classifies a joint in a braced frame as
+ *    rigid, S_j = 8 E I / L of the member (about each axis, with L its length between nodes).
+ */
+export function jointSprings(input: BridgeInput, group: GroupKey, sp: SectionProps, length: number): [number, number] | undefined {
+  if (group !== 'vertical' && group !== 'diagonal' && group !== 'crossGirder') return undefined;
+  if (input.jointModel === 'flex') return input.uFrameJointFlex > 0 ? [1000 / input.uFrameJointFlex, 1000 / input.uFrameJointFlex] : undefined;
+  if (input.jointModel === 'ec3') {
+    const E = E_STEEL * 1000; // kPa
+    return [(8 * E * sp.Ix * 1e-12) / length, (8 * E * sp.Iy * 1e-12) / length];
+  }
+  return undefined;
+}
+
+/**
  * Width across the bridge (m) of a chord (section depth vertical unless rotated: its flange width) or of a vertical
  * or diagonal (section depth across the bridge unless rotated: its depth).
  */
@@ -240,6 +257,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
     const ns = fr.map((f, i) => (i === 0 ? na : i === fr.length - 1 ? nb : node(A[0] + f * (B[0] - A[0]), A[1] + f * (B[1] - A[1]), A[2] + f * (B[2] - A[2]), shared)));
     const id = members.length;
     const s0 = sp[group];
+    const joint = jointSprings(input, group, s0, length);
     const els: number[] = [];
     for (let i = 0; i < ns.length - 1; i++) {
       els.push(elements.length);
@@ -256,7 +274,9 @@ export function buildModel(input: BridgeInput): BridgeModel {
         ref: depthDir,
         relI: i === 0 && !!opts.relA,
         relJ: i === ns.length - 2 && !!opts.relB,
-        relAxialJ: i === ns.length - 2 && !!opts.axialB
+        relAxialJ: i === ns.length - 2 && !!opts.axialB,
+        springI: i === 0 ? joint : undefined,
+        springJ: i === ns.length - 2 ? joint : undefined
       });
     }
     members.push({ id, name, group, side, panel, a: A, b: B, length, depthDir, sp: s0, elements: els, nodes: ns, stations: fr, relA: !!opts.relA, relB: !!opts.relB });

@@ -6,6 +6,8 @@ export type DeckType = 'concrete' | 'precast' | 'frp' | 'timber' | 'steel';
 export type GroupKey = 'topChord' | 'bottomChord' | 'endPost' | 'vertical' | 'diagonal' | 'crossGirder' | 'stringer' | 'bracing';
 export type LeMethod = 'buckling' | 'factor' | 'uframe';
 export type Finish = 'galvanised' | 'grey' | 'green' | 'charcoal';
+/** Welded joints at the ends of the web members and cross girders: rigid, or semi-rigid (rotational springs). */
+export type JointModel = 'rigid' | 'flex' | 'ec3';
 
 export interface GroupSection {
   category: SectionCategory;
@@ -80,7 +82,8 @@ export interface BridgeInput {
   barrier: number; // kN/m, nominal: 0.75 (3.0 where crowd loading or panic is possible)
   barrierVertical: number; // kN/m, simultaneous vertical load on the barrier (Cl. 12.5)
   restraintPct: number; // % of top chord force, 0 = off
-  uFrameJointFlex: number; // mrad/kNm, flexibility of the vertical to cross girder joint (U-frame method)
+  uFrameJointFlex: number; // mrad/kNm, joint flexibility f (U-frame method, and the semi-rigid joints with jointModel 'flex')
+  jointModel: JointModel;
   combos: Combination[];
   // design
   design: Record<GroupKey, GroupDesign>;
@@ -95,6 +98,7 @@ export interface BridgeInput {
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
   optimiseTarget: number; // %, utilisation the section optimiser aims for
+  maxSlenderness: number; // L/r limit of the truss members (AISC 360-16 D1 User Note: 300); 0 = not checked
 }
 
 export const GROUPS: GroupKey[] = ['topChord', 'bottomChord', 'endPost', 'vertical', 'diagonal', 'crossGirder', 'stringer', 'bracing'];
@@ -175,12 +179,12 @@ export const DEFAULT_INPUT: BridgeInput = {
   services: 0.5,
   finish: 'galvanised',
   sections: {
-    topChord: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
-    bottomChord: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
-    endPost: sec('SHS', '250×250×9.0 SHS', 'Grade C350L0'),
-    vertical: sec('SHS', '200×200×9.0 SHS', 'Grade C350L0'),
-    diagonal: sec('SHS', '150×150×6.0 SHS', 'Grade C350L0'),
-    crossGirder: sec('SHS', '200×200×9.0 SHS', 'Grade C350L0'),
+    topChord: sec('SHS', '250×250×9.0 SHS', 'Grade C450L0'),
+    bottomChord: sec('SHS', '250×250×9.0 SHS', 'Grade C450L0'),
+    endPost: sec('SHS', '250×250×9.0 SHS', 'Grade C450L0'),
+    vertical: sec('SHS', '200×200×9.0 SHS', 'Grade C450L0'),
+    diagonal: sec('SHS', '150×150×6.0 SHS', 'Grade C450L0'),
+    crossGirder: sec('SHS', '200×200×9.0 SHS', 'Grade C450L0'),
     stringer: sec('UB', '150 UB 18.0', 'Grade 300'),
     bracing: sec('CHS', '88.9×4.0 CHS', 'Grade C350L0')
   },
@@ -195,6 +199,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   barrierVertical: 0.75,
   restraintPct: 2.5,
   uFrameJointFlex: 0,
+  jointModel: 'rigid',
   combos: DEFAULT_COMBOS,
   design: {
     topChord: des('buckling'),
@@ -216,5 +221,6 @@ export const DEFAULT_INPUT: BridgeInput = {
   vibDecrement: 0.03,
   freqLatMin: 1.5,
   modalQ: 0,
-  optimiseTarget: 90
+  optimiseTarget: 90,
+  maxSlenderness: 300
 };

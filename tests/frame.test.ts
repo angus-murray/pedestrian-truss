@@ -43,3 +43,32 @@ test('simply supported beam under UDL: deflection, moment and released ends', ()
   const f0 = s.endForces(0, u, [0, 0, -w]);
   assert.ok(Math.abs(f0[4]) < 1e-6, `released end moment ${f0[4]}`);
 });
+
+test('rotational end spring: cantilever on a spring, and the fixed-end moment of a beam with semi-rigid ends', () => {
+  // cantilever along x, depth along z (Iy major), base node fixed, spring at the element end; tip load −Z
+  const L = 4, n = 4, k = 5000; // kNm/rad
+  const nodes: FENode[] = Array.from({ length: n + 1 }, (_, i) => ({ x: (L * i) / n, y: 0, z: 0 }));
+  const elements: FEElement[] = Array.from({ length: n }, (_, i) => ({ i, j: i + 1, E, G, A: 0.01, Iy: 1e-4, Iz: 1e-5, J: 1e-5, ref: [0, 0, 1], springI: i === 0 ? ([k, k] as [number, number]) : undefined }));
+  const restraints = nodes.map((_, i) => (i === 0 ? [true, true, true, true, true, true] : [false, false, false, false, false, false]));
+  const s = new FrameSolver({ nodes, elements, restraints });
+  assert.equal(s.factor(), null);
+  const P = 10;
+  const u = s.expand(s.K.solve(s.loadVector({ nodal: [{ node: n, f: [0, 0, -P, 0, 0, 0] }], elements: [] })));
+  const exact = -((P * L ** 3) / (3 * E * 1e-4) + (P * L * L) / k);
+  assert.ok(Math.abs(u[n * 6 + 2] / exact - 1) < 1e-6, `${u[n * 6 + 2]} vs ${exact}`);
+  // base moment = P L through the spring
+  const f = s.endForces(0, u, null);
+  assert.ok(Math.abs(Math.abs(f[4]) - P * L) < 1e-6, `${f[4]}`);
+
+  // fixed-fixed beam under UDL with equal end springs: M_end = (wL²/12) / (1 + 2EI/(kL))
+  const nodes2: FENode[] = Array.from({ length: n + 1 }, (_, i) => ({ x: (L * i) / n, y: 0, z: 0 }));
+  const el2: FEElement[] = Array.from({ length: n }, (_, i) => ({ i, j: i + 1, E, G, A: 0.01, Iy: 1e-4, Iz: 1e-5, J: 1e-5, ref: [0, 0, 1], springI: i === 0 ? ([k, k] as [number, number]) : undefined, springJ: i === n - 1 ? ([k, k] as [number, number]) : undefined }));
+  const r2 = nodes2.map((_, i) => (i === 0 || i === n ? [true, true, true, true, true, true] : [false, false, false, false, false, false]));
+  const s2 = new FrameSolver({ nodes: nodes2, elements: el2, restraints: r2 });
+  assert.equal(s2.factor(), null);
+  const w = 10;
+  const u2 = s2.expand(s2.K.solve(s2.loadVector({ nodal: [], elements: el2.map((_, el) => ({ el, q: [0, 0, -w] as [number, number, number] })) })));
+  const Mend = Math.abs(s2.endForces(0, u2, [0, 0, -w])[4]);
+  const exactM = (w * L * L) / 12 / (1 + (2 * E * 1e-4) / (k * L));
+  assert.ok(Math.abs(Mend / exactM - 1) < 1e-6, `${Mend} vs ${exactM}`);
+});

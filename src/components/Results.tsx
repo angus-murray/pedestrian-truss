@@ -258,8 +258,8 @@ const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: Member
                 <tr key={it.key}>
                   <td>{it.label}</td>
                   <td>{it.clause}</td>
-                  <td>{it.unit ? `${f1(it.action)} ${it.unit}` : it.action.toFixed(3)}</td>
-                  <td>{it.unit ? `${f1(it.capacity)}` : <Dash />}</td>
+                  <td>{it.unit === 'L/r' ? f0(it.action) : it.unit ? `${f1(it.action)} ${it.unit}` : it.action.toFixed(3)}</td>
+                  <td>{it.unit === 'L/r' ? f0(it.capacity) : it.unit ? `${f1(it.capacity)}` : <Dash />}</td>
                   <td>
                     <UtilValue value={it.util} highlight={it.label === d.governing} />
                   </td>

@@ -11,9 +11,9 @@ import type { BridgeModel } from '../../model/build';
 import { comboLabel, bucklingLabel, type AnalysisResults } from '../../model/analysis';
 import { buildBridge, groundLevel, type BridgeObjects } from './scene';
 import { buildPeople } from './people';
-import { axialColour, magnitudeColour, utilColour, UTIL_LEGEND } from './colours';
+import { axialColour, magnitudeColour, momentColour, utilColour, UTIL_LEGEND } from './colours';
 
-export type ViewMode = 'model' | 'util' | 'axial' | 'deflection' | 'buckling' | 'vibration';
+export type ViewMode = 'model' | 'util' | 'axial' | 'bending' | 'deflection' | 'buckling' | 'vibration';
 
 export interface ViewCapture {
   data: string;
@@ -30,6 +30,7 @@ const MODES: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
   { key: 'model', label: 'Model', icon: <Ico><path d="M2 17h20M2 7h20M2 17L7 7l5 10 5-10 5 10" /></Ico> },
   { key: 'util', label: 'Utilisation', icon: <Ico><rect x="3" y="12" width="4" height="9" /><rect x="10" y="7" width="4" height="14" /><rect x="17" y="3" width="4" height="18" /></Ico> },
   { key: 'axial', label: 'Axial Force', icon: <Ico><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4" /></Ico> },
+  { key: 'bending', label: 'Bending', icon: <Ico><path d="M2 8h20" /><path d="M2 8c4 10 16 10 20 0" /><path d="M7 8v5M12 8v6.5M17 8v5" /></Ico> },
   { key: 'deflection', label: 'Deflection', icon: <Ico><path d="M2 6h20" strokeDasharray="2 2" /><path d="M2 6c5 9 15 9 20 0" /></Ico> },
   { key: 'buckling', label: 'Buckling', icon: <Ico><path d="M12 2v20" strokeDasharray="2 2" /><path d="M12 2c-6 6-6 14 0 20" /></Ico> },
   { key: 'vibration', label: 'Vibration', icon: <Ico><path d="M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0" /></Ico> }
@@ -72,6 +73,7 @@ export const Viewer3D: React.FC<{
   const bridge = useRef<BridgeObjects | null>(null);
   const [mode, setMode] = useState<ViewMode>('model');
   const [combo, setCombo] = useState(-1); // −1: envelope (utilisation)
+  const [bendAxis, setBendAxis] = useState<'major' | 'minor'>('major');
   const [bCombo, setBCombo] = useState(0);
   const [bMode, setBMode] = useState(0);
   const [vMode, setVMode] = useState(0);
@@ -250,7 +252,7 @@ export const Viewer3D: React.FC<{
     b.context.visible = true;
 
     const res = hasResults ? results! : null;
-    const ghost = mode === 'deflection' || mode === 'buckling' || mode === 'vibration';
+    const ghost = mode === 'deflection' || mode === 'buckling' || mode === 'vibration' || mode === 'bending';
     b.members.forEach((mesh, id) => {
       const old = mesh.material as THREE.Material;
       if (old !== b.steel) old.dispose();
@@ -287,6 +289,51 @@ export const Viewer3D: React.FC<{
     });
 
     if (!res || !ghost) return;
+    if (mode === 'bending') {
+      // bending moment diagram on each member, drawn in its plane of bending: the major-axis moment offsets
+      // along the section depth, the minor-axis moment across it
+      const ci = combo < 0 ? 0 : combo;
+      const comp = bendAxis === 'major' ? 4 : 5;
+      const mmax = momentMax(res, ci, comp);
+      const sc = mmax > 0 ? (model.geo.L / 25 / mmax) * scale : 0;
+      const segs: number[] = [], cols: number[] = [];
+      for (const m of model.members) {
+        const sf = res.forces[ci][m.id];
+        const ax = new THREE.Vector3(...m.b).sub(new THREE.Vector3(...m.a)).normalize();
+        const dz = new THREE.Vector3(...m.depthDir);
+        dz.addScaledVector(ax, -dz.dot(ax)).normalize();
+        const dir = bendAxis === 'major' ? dz : new THREE.Vector3().crossVectors(dz, ax).normalize();
+        const pt = (k: number) => {
+          const f = m.stations[k];
+          const base = new THREE.Vector3(...m.a).lerp(new THREE.Vector3(...m.b), f);
+          return { base, tip: base.clone().addScaledVector(dir, sf[k * 6 + comp] * sc), M: sf[k * 6 + comp] };
+        };
+        const push = (p: THREE.Vector3, q: THREE.Vector3, mp: number, mq: number) => {
+          segs.push(p.x, p.y, p.z, q.x, q.y, q.z);
+          for (const v of [mp, mq]) {
+            const c = momentColour(Math.abs(v) / (mmax || 1));
+            cols.push(c.r, c.g, c.b);
+          }
+        };
+        for (let k = 0; k < m.stations.length; k++) {
+          const p = pt(k);
+          if (Math.abs(p.M) > mmax * 0.002) push(p.base, p.tip, p.M, p.M);
+          if (k > 0) {
+            const q = pt(k - 1);
+            if (Math.max(Math.abs(q.M), Math.abs(p.M)) > mmax * 0.002) push(q.tip, p.tip, q.M, p.M);
+          }
+        }
+      }
+      if (!segs.length) return;
+      const geom = new LineSegmentsGeometry();
+      geom.setPositions(segs);
+      geom.setColors(cols);
+      const lm = new LineMaterial({ vertexColors: true, linewidth: 2, worldUnits: false });
+      lm.resolution.set(mountRef.current!.clientWidth, mountRef.current!.clientHeight);
+      t.lineMats.push(lm);
+      t.overlay.add(new LineSegments2(geom, lm));
+      return;
+    }
     const nodes = model.fe.nodes;
     let shape: Float32Array | null = null;
     let amp = 1;
@@ -339,7 +386,7 @@ export const Viewer3D: React.FC<{
     const lines = new LineSegments2(geom, lm);
     t.overlay.add(lines);
     if (mode === 'vibration') t.animate = (time) => place(amp * Math.sin(time * 2.4));
-  }, [results, hasResults, mode, combo, bCombo, bMode, vMode, scale, showDeck, showPeople, selected, modelKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [results, hasResults, mode, combo, bendAxis, bCombo, bMode, vMode, scale, showDeck, showPeople, selected, modelKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- picking
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -456,7 +503,7 @@ export const Viewer3D: React.FC<{
         {/* result selectors */}
         {hasResults && mode !== 'model' && (
           <div className="bg-white border border-slate-200 rounded-lg shadow-2xs p-2 space-y-1.5 w-64 text-[11px]">
-            {(mode === 'util' || mode === 'axial' || mode === 'deflection') && (
+            {(mode === 'util' || mode === 'axial' || mode === 'bending' || mode === 'deflection') && (
               <select className="control-sm w-full" value={combo} onChange={(e) => setCombo(+e.target.value)}>
                 {mode === 'util' && <option value={-1}>Envelope (All ULS)</option>}
                 {results!.combos.map((c, i) =>
@@ -467,6 +514,20 @@ export const Viewer3D: React.FC<{
                   )
                 )}
               </select>
+            )}
+            {mode === 'bending' && (
+              <div className="grid grid-cols-2 gap-1">
+                {(['major', 'minor'] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    className={`rounded px-2 py-1 font-medium border ${bendAxis === a ? 'bg-blue-50 text-blue-700 border-blue-200' : 'text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                    onClick={() => setBendAxis(a)}
+                  >
+                    {a === 'major' ? 'Major Axis (Mx)' : 'Minor Axis (My)'}
+                  </button>
+                ))}
+              </div>
             )}
             {mode === 'buckling' && (
               <>
@@ -495,13 +556,18 @@ export const Viewer3D: React.FC<{
                 ))}
               </select>
             )}
-            {(mode === 'deflection' || mode === 'buckling' || mode === 'vibration') && (
+            {(mode === 'deflection' || mode === 'buckling' || mode === 'vibration' || mode === 'bending') && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-600 font-medium">Scale</span>
                 <input type="range" className="range" min={0.2} max={4} step={0.1} value={scale} onChange={(e) => setScale(+e.target.value)} />
               </div>
             )}
             {mode === 'deflection' && <DeflectionNote results={results!} combo={combo < 0 ? 0 : combo} />}
+            {mode === 'bending' && (
+              <div className="text-slate-600 tabular-nums">
+                Max {bendAxis === 'major' ? 'major' : 'minor'}-axis moment {momentMax(results!, combo < 0 ? 0 : combo, bendAxis === 'major' ? 4 : 5).toFixed(1)} kNm; diagram drawn in the plane of bending of each member
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -563,6 +629,25 @@ function hoverDetail(mode: ViewMode, res: AnalysisResults, id: number, model: Br
       </div>
     );
   }
+  if (mode === 'bending') {
+    const sf = res.forces[ci][id];
+    const peak = (c: number) => {
+      let v = 0;
+      for (let s = c; s < sf.length; s += 6) if (Math.abs(sf[s]) > Math.abs(v)) v = sf[s];
+      return Math.abs(v);
+    };
+    const n = sf.length / 6;
+    return (
+      <div>
+        <div>
+          <i>M</i>*<sub>x</sub> max <span className="font-semibold">{peak(4).toFixed(1)} kNm</span> (ends {Math.abs(sf[4]).toFixed(1)}, {Math.abs(sf[(n - 1) * 6 + 4]).toFixed(1)})
+        </div>
+        <div>
+          <i>M</i>*<sub>y</sub> max <span className="font-semibold">{peak(5).toFixed(1)} kNm</span> (ends {Math.abs(sf[5]).toFixed(1)}, {Math.abs(sf[(n - 1) * 6 + 5]).toFixed(1)})
+        </div>
+      </div>
+    );
+  }
   if (mode === 'deflection') {
     const u = res.disp[ci];
     let v = 0, l = 0, tot = 0;
@@ -578,6 +663,13 @@ function hoverDetail(mode: ViewMode, res: AnalysisResults, id: number, model: Br
     );
   }
   return null;
+}
+
+/** Largest moment (component 4: major axis, 5: minor axis) of any member in a combination. */
+function momentMax(res: AnalysisResults, ci: number, comp: 4 | 5) {
+  let mx = 0;
+  for (const sf of res.forces[ci] ?? []) for (let s = comp; s < sf.length; s += 6) mx = Math.max(mx, Math.abs(sf[s]));
+  return mx;
 }
 
 function axialMax(res: AnalysisResults, ci: number) {

@@ -15,6 +15,7 @@ import {
   type DeckType,
   type Finish,
   type GroupKey,
+  type JointModel,
   type LeMethod,
   type TrussType
 } from '../model/types';
@@ -576,20 +577,39 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
         <NumberField label="Buckling Modes" value={input.bucklingModes} onChange={(v) => set('bucklingModes', Math.round(v))} min={1} max={20} step={1} title="Number of buckling modes computed for each ULS combination" />
         <NumberField label="Participation (%)" value={input.participation} onChange={(v) => set('participation', v)} min={1} max={100} step={1} title="About each axis, a member takes its buckling load from the lowest mode in which its destabilising energy from bending about that axis is at least this share of that of the member with the most" />
       </div>
+      <SelectField
+        label="Web and Cross Girder Joints"
+        value={input.jointModel}
+        onChange={(v) => set('jointModel', v as JointModel)}
+        options={[
+          { value: 'rigid', label: 'Rigid' },
+          { value: 'flex', label: 'Semi-Rigid, Joint Flexibility f' },
+          { value: 'ec3', label: 'Semi-Rigid, EN 1993-1-8 Rigid Limit (8EI/L)' }
+        ]}
+      />
       <NumberField
-        label="U-Frame Joint Flexibility f (mrad/kNm)"
+        label="Joint Flexibility f (mrad/kNm)"
         value={input.uFrameJointFlex}
         onChange={(v) => set('uFrameJointFlex', v)}
         min={0}
         max={10}
         step={0.01}
         decimals={2}
-        disabled={input.design.topChord.method !== 'uframe'}
+        disabled={input.design.topChord.method !== 'uframe' && input.jointModel !== 'flex'}
         disabledText="–"
-        title="Rotational flexibility of the joint between the verticals (or diagonals) and the cross girders, for the U-frame effective length method; 0 for a fully rigid, stiffened joint"
+        title="Rotational flexibility of the welded joints: of the vertical (or diagonal) to cross girder joint in the U-frame effective length method, and of every web member and cross girder end with the 'Joint Flexibility f' joints; 0 for a rigid joint"
       />
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Elements per Member" value={input.elementsPerMember} onChange={(v) => set('elementsPerMember', Math.round(v))} min={2} max={10} step={1} />
+        <NumberField
+          label="Max Slenderness L/r"
+          value={input.maxSlenderness}
+          onChange={(v) => set('maxSlenderness', v)}
+          min={0}
+          max={1000}
+          step={10}
+          title="Largest slenderness L/r of the truss members (chords, end posts, verticals, diagonals), in tension or compression, with L the length between nodes and r the least radius of gyration: 300 after AISC 360-16 Section D1 (User Note). 0 = not checked."
+        />
         <div className="flex items-end pb-2">
           <Check checked={input.amplify} onChange={(v) => set('amplify', v)} title="Moments in compression members amplified by 1 / (1 − N*/N_om)">
             Moment Amplification

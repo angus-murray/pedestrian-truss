@@ -518,14 +518,21 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   heading(`${sec++}   Method and Assumptions`);
   paragraph(
     'The two trusses, cross girders and plan bracing are modelled as a linear elastic 3D frame of Euler–Bernoulli beam elements, each member divided into ' +
-      `${input.elementsPerMember} elements. Chords are continuous; joints are rigid except where released. The cross girders frame into the bottom chord panel points and form U-frames with the verticals, which are the only lateral restraint of the top chords. ` +
+      `${input.elementsPerMember} elements. Chords are continuous; ${
+        input.jointModel === 'rigid'
+          ? 'joints are rigid except where released'
+          : input.jointModel === 'flex'
+            ? `the welded ends of the verticals, diagonals and cross girders are semi-rigid, with rotational springs k = 1/f about both axes (joint flexibility f = ${input.uFrameJointFlex} mrad/kNm)`
+            : 'the welded ends of the verticals, diagonals and cross girders are semi-rigid, with rotational springs S_j = 8EI/L of each member about each axis (the least stiffness classified as rigid in a braced frame by EN 1993-1-8 Cl. 5.2.2.5)'
+      }. Stringers are simply supported with the axial degree of freedom released at one end, so they carry no axial force. The cross girders frame into the bottom chord panel points and form U-frames with the verticals, which are the only lateral restraint of the top chords. ` +
       'The deck is non-structural. Without stringers it spans along the bridge between the cross girders; with stringers it spans across the bridge between the stringers (and the bottom chords where they support it). Load cases are combined linearly.'
   );
   paragraph(
     'The elastic buckling load factors λ_c come from a linearised buckling analysis of the whole frame (geometric stiffness from the member axial forces of each ULS combination). For members designed by buckling analysis, the elastic buckling load is N_om = λ_c N* for the lowest mode in which the member takes part, and the slenderness l_e/r = π√(E A_g / N_om) is used in AS 5100.6 Cl. 6.3.3. Moments in compression members are amplified by 1/(1 − N*/N_om).'
   );
   paragraph(
-    'Combined actions are checked with the linear interaction N*/φN + M*_x/φM_x + M*_y/φM_y ≤ 1 for the section (Cl. 8.3.4) and the member (Cl. 8.4, with φN_c and φM_bx), which is conservative. Connections, fatigue and the deck are not designed.'
+    'Combined actions are checked with the linear interaction N*/φN + M*_x/φM_x + M*_y/φM_y ≤ 1 for the section (Cl. 8.3.4) and the member (Cl. 8.4, with φN_c and φM_bx), which is conservative. Connections, fatigue and the deck are not designed.' +
+      (input.maxSlenderness > 0 ? ` The slenderness L/r of the truss members is limited to ${input.maxSlenderness} (after AISC 360-16 Section D1, User Note).` : '')
   );
 
   // ---------- Running header and page numbers ----------

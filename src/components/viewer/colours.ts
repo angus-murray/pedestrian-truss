@@ -35,6 +35,11 @@ export function axialColour(n: number, max: number): THREE.Color {
   return new THREE.Color('#e2e8f0').lerp(new THREE.Color(n >= 0 ? '#1d4ed8' : '#dc2626'), Math.sqrt(t));
 }
 
+/** Bending moment magnitude (0–1): grey → amber → red. */
+export function momentColour(t: number): THREE.Color {
+  return ramp([[0, '#94a3b8'], [0.5, '#f59e0b'], [1, '#dc2626']], t);
+}
+
 /** Displacement magnitude (0–1): blue → green → yellow → red. */
 export function magnitudeColour(t: number): THREE.Color {
   return ramp([[0, '#1d4ed8'], [0.33, '#0d9488'], [0.66, '#eab308'], [1, '#dc2626']], t);
