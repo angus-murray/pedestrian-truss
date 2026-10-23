@@ -437,6 +437,25 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
       ...r.sls.map((s) => ({ cells: [comboLabel(r.combos[s.combo]), f1(s.maxVert * 1000), f1(s.maxLat * 1000), s.limit !== null ? `${f1(s.limit * 1000)} ${passFail(s.maxVert <= s.limit + 1e-9)}` : '—'] }))
     ]
   );
+  if (r.precamber) {
+    const p = r.precamber;
+    const half = p.ordinates.filter((o) => o.x <= input.span / 2 + 1e-6);
+    subheading('Precamber for the permanent loads (G1 + G2), bottom chord panel points', `Limit span / ${input.precamberLimit} (AS 5100.2 Cl. 8.4)`);
+    table(
+      [28, ...half.map(() => 72 / half.length)],
+      [
+        { cells: ['x (m)', ...half.map((o) => f2(o.x))], kind: 'head' },
+        { cells: ['Hog (mm)', ...half.map((o) => f1(o.dz * 1000))] }
+      ]
+    );
+    table(
+      [46, 18, 18, 18],
+      [
+        { cells: ['Precamber', 'Maximum (mm)', 'Limit (mm)', 'Status'], kind: 'head' },
+        { cells: ['Bottom chord, both trusses averaged', f1(p.max * 1000), f1(p.limit * 1000), passFail(p.ok)] }
+      ]
+    );
+  }
   if (r.sls.some((s) => s.horizontal)) {
     subheading('Horizontal deflection under wind (midspan, average of top and bottom chords)', `Limit span / ${input.latDeflLimit}`);
     table(

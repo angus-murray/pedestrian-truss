@@ -89,6 +89,7 @@ export interface BridgeInput {
   participation: number; // %
   deflLimit: number; // span / x, vertical (pedestrian)
   latDeflLimit: number; // span / x, horizontal under SLS wind
+  precamberLimit: number; // span / x, precamber (hog) for the permanent loads
   vibDecrement: number; // logarithmic decrement δ (AS 5100.2 Table 13.4.2)
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
@@ -208,6 +209,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   participation: 10,
   deflLimit: 600,
   latDeflLimit: 600,
+  precamberLimit: 300,
   vibDecrement: 0.03,
   freqLatMin: 1.5,
   modalQ: 0

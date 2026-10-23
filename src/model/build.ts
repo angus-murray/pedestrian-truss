@@ -89,6 +89,10 @@ export interface BridgeModel {
   /** UDL per element per case (global, 3 per element) for force recovery. */
   elLoads: Record<CaseKey, Float64Array>;
   nodeMass: Float64Array; // t
+  /** Lumped mass of the permanent loads alone (t): the structure for the vertical vibration check. */
+  nodeMassG: Float64Array;
+  /** Bottom chord node at each panel point, both trusses: [side][panel point]. */
+  bottomNodes: number[][];
   supports: number[];
   /** Top chord node of each panel point (for restraint forces): [x index][side]. */
   topNodes: { node: number; side: 'A' | 'B'; x: number }[];
@@ -459,6 +463,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
   lump('G1s', 1);
   lump('G1d', 1);
   lump('G2', 1);
+  const nodeMassG = Float64Array.from(nodeMass);
   if (input.modalQ > 0) lump('Q', input.modalQ / 100);
 
   const topNodes: BridgeModel['topNodes'] = [];
@@ -480,5 +485,5 @@ export function buildModel(input: BridgeInput): BridgeModel {
     solidity,
     windDepth: cd * windDepth
   };
-  return { input, geo, members, fe: { nodes, elements, restraints }, elMember: Int32Array.from(elMember), cases, elLoads, nodeMass, supports, topNodes, steelMass, warnings, errors };
+  return { input, geo, members, fe: { nodes, elements, restraints }, elMember: Int32Array.from(elMember), cases, elLoads, nodeMass, nodeMassG, bottomNodes: bot.map((b) => b.slice()), supports, topNodes, steelMass, warnings, errors };
 }

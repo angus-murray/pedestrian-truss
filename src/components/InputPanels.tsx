@@ -582,7 +582,10 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
           <NumberField label="Vertical Limit (L / …)" value={input.deflLimit} onChange={(v) => set('deflLimit', v)} min={100} max={2000} step={50} title="Vertical deflection of the trusses in the SLS combinations marked for the deflection check (pedestrian load); also the stringers, relative to the cross girders, over the panel length" />
           <NumberField label="Horizontal Limit (L / …)" value={input.latDeflLimit} onChange={(v) => set('latDeflLimit', v)} min={100} max={2000} step={50} title="Horizontal deflection in the SLS combinations with wind: at midspan, the average of the top and bottom chord displacements of each truss" />
         </div>
-        <NumberField label="Mass From Q (%)" value={input.modalQ} onChange={(v) => set('modalQ', v)} min={0} max={100} step={5} title="Share of the pedestrian load included as mass for the natural frequencies" />
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Precamber Limit (L / …)" value={input.precamberLimit} onChange={(v) => set('precamberLimit', v)} min={100} max={2000} step={50} title="Precamber (hog) to offset the deflection under the permanent loads, so that no sag remains under them (AS 5100.2 Cl. 8.4)" />
+          <NumberField label="Mass From Q (%)" value={input.modalQ} onChange={(v) => set('modalQ', v)} min={0} max={100} step={5} title="Share of the pedestrian load included as mass for the natural frequencies (the vertical vibration check uses the permanent mass alone)" />
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <SelectField
             label="Damping (Log Decrement δ)"

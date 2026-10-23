@@ -3,7 +3,7 @@ import { Banner, Cols, Dash, PassFail, ResultsHeader, StatusChip, UtilValue, pct
 import { ChevronDown } from 'lucide-react';
 import type { BridgeModel } from '../model/build';
 import type { SolverError } from '../model/useAnalysis';
-import { comboLabel, bucklingLabel, uFrameLength, type AnalysisResults, type MemberDesign } from '../model/analysis';
+import { comboLabel, bucklingLabel, uFrameLength, type AnalysisResults, type MemberDesign, type PrecamberResult } from '../model/analysis';
 import { GROUP_INFO, GROUPS, type BridgeInput, type GroupKey } from '../model/types';
 
 const S: React.FC<{ s: string; sub?: string }> = ({ s, sub }) => (
@@ -35,7 +35,7 @@ export function summarise(model: BridgeModel, r: AnalysisResults, input: BridgeI
       (s.limit === null || s.maxVert <= s.limit + 1e-9) &&
       (!s.stringer || s.stringer.maxRel <= s.stringer.limit + 1e-9) &&
       (!s.horizontal || s.horizontal.value <= s.horizontal.limit + 1e-9)
-  );
+  ) && (!r.precamber || r.precamber.ok);
   const lambdaMin = r.buckling.reduce<number | null>((m, b) => (b.values.length ? Math.min(m ?? Infinity, b.values[0]) : m), null);
   const v = r.vibration;
   const fv = v?.f0 ?? null, fl = v?.fLat ?? null;
@@ -299,6 +299,43 @@ const KV: React.FC<{ k: React.ReactNode; v: React.ReactNode }> = ({ k, v }) => (
   </tr>
 );
 
+const PrecamberTable: React.FC<{ p: PrecamberResult; input: BridgeInput }> = ({ p, input }) => {
+  // panel points from the support to midspan (the profile is symmetric for symmetric loads)
+  const half = p.ordinates.filter((o) => o.x <= input.span / 2 + 1e-6);
+  return (
+    <>
+      <h3 className="card-title mt-2 mb-1">Precamber (Permanent Loads)</h3>
+      <table className="rtable">
+        <Cols w={[30, 19, 18, 18, 15]} />
+        <thead>
+          <tr>
+            <th>Check</th>
+            <th>Precamber (mm)</th>
+            <th>Limit (mm)</th>
+            <th>Ratio</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="!text-left">Maximum, Bottom Chord</td>
+            <td>{f1(p.max * 1000)}</td>
+            <td>{f1(p.limit * 1000)}</td>
+            <td>{p.max > 1e-9 ? `L / ${f0(input.span / p.max)}` : <Dash />}</td>
+            <td>
+              <PassFail pass={p.ok} />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="text-[11px] text-slate-500 mt-1">
+        Hog to build in at the bottom chord panel points, so that no sag remains under G1 + G2 (AS 5100.2 Cl. 8.4), limit span / {input.precamberLimit}. From the support to midspan:{' '}
+        {half.map((o) => `${f0(o.dz * 1000)}`).join(', ')} mm at {half.map((o) => o.x.toFixed(2)).join(', ')} m.
+      </p>
+    </>
+  );
+};
+
 const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; input: BridgeInput }> = ({ model, r, input }) => (
   <section className="panel">
     <div className="panel-header">
@@ -330,7 +367,8 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
             ))}
           </tbody>
         </table>
-        <p className="text-[11px] text-slate-500 mt-1">Vertical deflection of the trusses, limit span / {input.deflLimit}. The dead load deflection indicates the precamber.</p>
+        <p className="text-[11px] text-slate-500 mt-1">Vertical deflection of the trusses, limit span / {input.deflLimit}.</p>
+        {r.precamber && <PrecamberTable p={r.precamber} input={input} />}
         {r.sls.some((s) => s.horizontal) && (
           <>
             <h3 className="card-title mt-2 mb-1">Horizontal Deflection (Wind)</h3>
@@ -431,7 +469,9 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
             })}
           </tbody>
         </table>
-        <p className="text-[11px] text-slate-500 mt-1">Mass from G1 and G2{input.modalQ > 0 ? ` and ${input.modalQ}% of the pedestrian load` : ''}.</p>
+        <p className="text-[11px] text-slate-500 mt-1">
+          Mass from G1 and G2{input.modalQ > 0 ? ` and ${input.modalQ}% of the pedestrian load; the vertical vibration check uses f₀ from the permanent mass alone` : ''}.
+        </p>
       </div>
     </div>
     {r.vibration && <VibrationTable v={r.vibration} />}
@@ -485,7 +525,7 @@ const VibrationTable: React.FC<{ v: NonNullable<AnalysisResults['vibration']> }>
       <sup>2</sup>
       <S s="y" />
       <S s="Ψ" /> ≤ 0.25<S s="f" sub="0" />
-      <sup>0.78</sup>. <S s="f" sub="0" /> is the first vertical mode of the 3D model; <S s="y" /> is its static deflection under a 700 N pedestrian at midspan; <S s="Ψ" /> from Figure 13.4.2 for the span.
+      <sup>0.78</sup>. <S s="f" sub="0" /> is the first vertical mode of the 3D model with the permanent mass alone; <S s="y" /> is its static deflection under a 700 N pedestrian at midspan; <S s="Ψ" /> from Figure 13.4.2 for the span.
     </p>
   </div>
 );

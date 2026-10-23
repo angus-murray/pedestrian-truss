@@ -54,7 +54,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
     // vertical vibration: truss bending stiffness ∝ A_t A_b / (A_t + A_b) from the chords, f0 ∝ √(k / M) and,
     // as f0² y is independent of the stiffness, a ∝ 1 / M; the check is needed only below 5 Hz
     const vib = results.vibration;
-    const massTotal = model.nodeMass.reduce((t, m) => t + m, 0); // t
+    const massTotal = model.nodeMassG.reduce((t, m) => t + m, 0); // t, the mass of the vibration check
     const chordStiff = (st: BridgeInput['sections']) => {
       const at = sectionProps(st.topChord).A, ab = sectionProps(st.bottomChord).A;
       return (at * ab) / (at + ab);

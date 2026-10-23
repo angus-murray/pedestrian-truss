@@ -123,6 +123,13 @@ export interface SlsResult {
 }
 
 /** Vertical vibration check, AS 5100.2 Cl. 13.4. */
+export interface PrecamberResult {
+  ordinates: { x: number; dz: number }[]; // m along the span, m upwards
+  max: number; // m
+  limit: number; // span / precamberLimit (m)
+  ok: boolean;
+}
+
 export interface VibrationResult {
   f0: number | null; // first vertical frequency (Hz)
   y: number; // static deflection under 700 N at midspan (m)
@@ -165,6 +172,11 @@ export interface AnalysisResults {
   design: MemberDesign[];
   sls: SlsResult[];
   vibration: VibrationResult | null;
+  /**
+   * Precamber: the deflection of the trusses under the permanent loads (G1 + G2, unfactored), to be built in as a
+   * hog so that no sag remains under them, at the bottom chord panel points (average of the two trusses).
+   */
+  precamber: PrecamberResult | null;
   errors: string[];
   warnings: string[];
   dofs: number;
@@ -185,7 +197,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const nNodes = model.fe.nodes.length;
   const empty: AnalysisResults = {
     combos, disp: [], forces: [], caseDisp: {} as Record<CaseKey, Float32Array>, buckling: [],
-    modal: { freqs: [], modes: [], kinds: [], massRatio: [] }, design: [], sls: [], vibration: null, errors, warnings, dofs: solver.nEq, timeMs: 0
+    modal: { freqs: [], modes: [], kinds: [], massRatio: [] }, design: [], sls: [], vibration: null, precamber: null, errors, warnings, dofs: solver.nEq, timeMs: 0
   };
   if (bad) {
     errors.push(bad);
@@ -358,36 +370,43 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
 
   // ---------------------------------------------------------- natural frequencies
   progress('Natural frequencies');
-  const M = solver.massMatrix(model.nodeMass);
-  const mr = lanczos(solver.K, Kmul, (x, y) => void M.multiply(x, y), model.geo.stringerYs.length ? 12 : 6);
   // nodes that belong only to stringers: modes with most of their kinetic energy there are local stringer modes
   const stringerNode = new Uint8Array(model.fe.nodes.length);
   for (const m of model.members) if (m.group === 'stringer') for (const nd of m.nodes) stringerNode[nd] = 1;
   for (const m of model.members) if (m.group !== 'stringer') for (const nd of m.nodes) stringerNode[nd] = 0;
-  const modal: ModalResult = { freqs: [], modes: [], kinds: [], massRatio: [] };
   const sideOf = model.fe.nodes.map((nd) => (nd.y < -1e-6 ? -1 : nd.y > 1e-6 ? 1 : 0));
-  mr.values.forEach((lam, k) => {
-    const full = solver.expand(mr.vectors[k]);
-    let ex = 0, ey = 0, ez = 0, mx = 0, corr = 0, za = 0, zb = 0, est = 0;
-    model.nodeMass.forEach((m, nd) => {
-      const ux = full[nd * 6], uy = full[nd * 6 + 1], uz = full[nd * 6 + 2];
-      ex += m * ux * ux;
-      ey += m * uy * uy;
-      ez += m * uz * uz;
-      if (stringerNode[nd]) est += m * (ux * ux + uy * uy + uz * uz);
-      if (sideOf[nd] < 0) za += m * uz;
-      if (sideOf[nd] > 0) zb += m * uz;
-      mx = Math.max(mx, Math.abs(ux), Math.abs(uy), Math.abs(uz));
+  const modalAnalysis = (nodeMass: Float64Array): ModalResult => {
+    const M = solver.massMatrix(nodeMass);
+    const mr = lanczos(solver.K, Kmul, (x, y) => void M.multiply(x, y), model.geo.stringerYs.length ? 12 : 6);
+    const modal: ModalResult = { freqs: [], modes: [], kinds: [], massRatio: [] };
+    mr.values.forEach((lam, k) => {
+      const full = solver.expand(mr.vectors[k]);
+      let ex = 0, ey = 0, ez = 0, mx = 0, corr = 0, za = 0, zb = 0, est = 0;
+      nodeMass.forEach((m, nd) => {
+        const ux = full[nd * 6], uy = full[nd * 6 + 1], uz = full[nd * 6 + 2];
+        ex += m * ux * ux;
+        ey += m * uy * uy;
+        ez += m * uz * uz;
+        if (stringerNode[nd]) est += m * (ux * ux + uy * uy + uz * uz);
+        if (sideOf[nd] < 0) za += m * uz;
+        if (sideOf[nd] > 0) zb += m * uz;
+        mx = Math.max(mx, Math.abs(ux), Math.abs(uy), Math.abs(uz));
+      });
+      corr = za * zb;
+      const tot = ex + ey + ez || 1;
+      const kind =
+        est > 0.5 * tot ? 'Stringers (Local)' : ez >= ey && ez >= ex ? (corr < 0 ? 'Torsional' : 'Vertical') : ey >= ex ? 'Lateral' : 'Longitudinal';
+      modal.freqs.push(Math.sqrt(lam) / (2 * Math.PI));
+      modal.modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
+      modal.kinds.push(kind);
+      modal.massRatio.push(Math.max(ex, ey, ez) / tot);
     });
-    corr = za * zb;
-    const tot = ex + ey + ez || 1;
-    const kind =
-      est > 0.5 * tot ? 'Stringers (Local)' : ez >= ey && ez >= ex ? (corr < 0 ? 'Torsional' : 'Vertical') : ey >= ex ? 'Lateral' : 'Longitudinal';
-    modal.freqs.push(Math.sqrt(lam) / (2 * Math.PI));
-    modal.modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
-    modal.kinds.push(kind);
-    modal.massRatio.push(Math.max(ex, ey, ez) / tot);
-  });
+    return modal;
+  };
+  const modal = modalAnalysis(model.nodeMass);
+  // the single-pedestrian check (Cl. 13.4) is for the bridge itself: with pedestrian mass in the natural frequencies,
+  // f0 comes from a second analysis with the permanent mass alone (a = 4π² f0² y Ψ is inversely proportional to it)
+  const modalG = input.modalQ > 0 ? modalAnalysis(model.nodeMassG) : modal;
 
   // ---------------------------------------------------------- vertical vibration (AS 5100.2 Cl. 13.4)
   // static deflection under one 700 N pedestrian at midspan, shared by the two bottom chords
@@ -399,7 +418,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     .map(({ i }) => i);
   const uP = solver.expand(solver.K.solve(solver.loadVector({ nodal: mid.map((node) => ({ node, f: [0, 0, -0.35, 0, 0, 0] as [number, number, number, number, number, number] })), elements: [] })));
   const yP = Math.max(...mid.map((nd) => -uP[nd * 6 + 2]));
-  const f0 = modal.freqs.find((_, i) => modal.kinds[i] === 'Vertical') ?? null;
+  const f0 = modalG.freqs.find((_, i) => modalG.kinds[i] === 'Vertical') ?? null;
   const fLat = modal.freqs.find((_, i) => modal.kinds[i] === 'Lateral') ?? null;
   const psi = dynamicResponseFactor(input.span, input.vibDecrement);
   const accel = f0 !== null ? 4 * Math.PI ** 2 * f0 * f0 * yP * psi : 0;
@@ -460,6 +479,12 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     sls.push({ combo: ci, maxVert, maxLat, node: nodeAt, limit: c.deflection ? input.span / input.deflLimit : null, stringer, horizontal });
   });
 
+  // ---------------------------------------------------------- precamber (permanent loads)
+  const perm = (nd: number) => -(caseU.G1s[nd * 6 + 2] + caseU.G1d[nd * 6 + 2] + caseU.G2[nd * 6 + 2]);
+  const ordinates = model.bottomNodes[0].map((nA, k) => ({ x: model.fe.nodes[nA].x, dz: (perm(nA) + perm(model.bottomNodes[1][k])) / 2 }));
+  const pcMax = Math.max(0, ...ordinates.map((o) => o.dz));
+  const precamber: PrecamberResult = { ordinates, max: pcMax, limit: input.span / input.precamberLimit, ok: pcMax <= input.span / input.precamberLimit + 1e-12 };
+
   for (const b of buckling) {
     if (!b.values.length) errors.push(`No positive buckling load factor was found for ${comboLabel(combos[b.combo])}.`);
     else if (b.values[0] < 1) errors.push(`${comboLabel(combos[b.combo])}: the elastic buckling load factor is ${b.values[0].toFixed(2)} (< 1); the structure is unstable under the design loads.`);
@@ -468,7 +493,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const caseDisp = Object.fromEntries(CASES.map((c) => [c, Float32Array.from(caseU[c])])) as Record<CaseKey, Float32Array>;
   return {
     model,
-    results: { combos, disp, forces, caseDisp, buckling, modal, design, sls, vibration, errors, warnings, dofs: solver.nEq, timeMs: performance.now() - t0 }
+    results: { combos, disp, forces, caseDisp, buckling, modal, design, sls, vibration, precamber, errors, warnings, dofs: solver.nEq, timeMs: performance.now() - t0 }
   };
 }
 

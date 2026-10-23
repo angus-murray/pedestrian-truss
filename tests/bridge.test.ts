@@ -109,3 +109,20 @@ test('buckling analysis method: N_om for each axis, top chord in-plane from its 
   const ep = results.design.find((d) => model.members[d.member].group === 'endPost' && d.comp && d.modeMajor === null);
   if (ep) assert.equal(ep.fallbackMajor, 'bound');
 });
+
+test('precamber: hog for the permanent loads at the bottom chord panel points, limit span / 300', () => {
+  const p = results.precamber!;
+  assert.equal(p.ordinates.length, model.bottomNodes[0].length);
+  assert.ok(Math.abs(p.ordinates[0].dz) < 1e-6, 'zero at the supports');
+  const mid = p.ordinates[Math.floor(p.ordinates.length / 2)];
+  assert.ok(Math.abs(mid.dz - p.max) < 1e-9, 'largest at midspan');
+  assert.ok(Math.abs(p.limit - DEFAULT_INPUT.span / 300) < 1e-12);
+});
+
+test('vertical vibration: f0 and the acceleration do not depend on the pedestrian mass for the natural frequencies', () => {
+  const withQ = runAnalysis({ ...DEFAULT_INPUT, restraintPct: 0, modalQ: 50 }).results;
+  assert.ok(Math.abs(withQ.vibration!.f0! / results.vibration!.f0! - 1) < 1e-6);
+  assert.ok(Math.abs(withQ.vibration!.a / results.vibration!.a - 1) < 1e-6);
+  // the natural frequencies themselves include the pedestrian mass
+  assert.ok(withQ.modal.freqs[0] < results.modal.freqs[0]);
+});
