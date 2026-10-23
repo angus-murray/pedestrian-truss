@@ -174,10 +174,13 @@ test('slenderness limit of the truss members: L/r ≤ 300 (AISC 360-16 D1)', asy
   assert.ok(!cg.items.some((x) => x.key === 'Lr'));
 });
 
-test('semi-rigid joints: the springs soften the structure, rigid is the default', () => {
-  const lam = (jointModel: 'rigid' | 'ec3' | 'flex', f = 0) => runAnalysis({ ...DEFAULT_INPUT, restraintPct: 0, jointModel, uFrameJointFlex: f }).results.buckling[0].values[0];
+test('semi-rigid joints: the springs soften the structure; AS 5100.6 welded joints by default', () => {
+  const lam = (jointModel: 'rigid' | 'ec3' | 'flex' | 'as5100', f = 0) => runAnalysis({ ...DEFAULT_INPUT, restraintPct: 0, jointModel, uFrameJointFlex: f }).results.buckling[0].values[0];
   const rigid = lam('rigid');
-  assert.ok(Math.abs(rigid - results.buckling[0].values[0]) < 1e-9);
+  // the default is AS 5100.6 Cl. 5.6.3 (c), welded: f = 0.1 × 10⁻¹⁰ rad/Nmm = 0.01 mrad/kNm
+  assert.equal(DEFAULT_INPUT.jointModel, 'as5100');
+  assert.ok(Math.abs(lam('as5100') - lam('flex', 0.01)) < 1e-9);
+  assert.ok(Math.abs(results.buckling[0].values[0] - lam('as5100')) < 1e-9);
   const ec3 = lam('ec3'), flex = lam('flex', 1);
   assert.ok(ec3 < rigid && flex < ec3, `${rigid} ${ec3} ${flex}`);
   // f = 0 is rigid

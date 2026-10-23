@@ -6,7 +6,7 @@
  */
 import { jsPDF } from 'jspdf';
 import type { BridgeInput } from '../model/types';
-import { DECK_INFO, GROUP_INFO, GROUPS } from '../model/types';
+import { AS5100_JOINT_FLEX, DECK_INFO, GROUP_INFO, GROUPS, jointFlex } from '../model/types';
 import { effectiveSections, type BridgeModel } from '../model/build';
 import { comboLabel, bucklingLabel, windPressure, type AnalysisResults } from '../model/analysis';
 import { summarise } from '../components/Results';
@@ -521,8 +521,8 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
       `${input.elementsPerMember} elements. Chords are continuous; ${
         input.jointModel === 'rigid'
           ? 'joints are rigid except where released'
-          : input.jointModel === 'flex'
-            ? `the welded ends of the verticals, diagonals and cross girders are semi-rigid, with rotational springs k = 1/f about both axes (joint flexibility f = ${input.uFrameJointFlex} mrad/kNm)`
+          : input.jointModel === 'as5100' || input.jointModel === 'flex'
+            ? `the welded ends of the verticals, diagonals and cross girders are semi-rigid, with rotational springs k = 1/f about both axes (joint flexibility f = ${jointFlex(input)} mrad/kNm${input.jointModel === 'as5100' ? `, AS 5100.6 Cl. 5.6.3 ${AS5100_JOINT_FLEX[input.jointAsType].label}` : ''})`
             : 'the welded ends of the verticals, diagonals and cross girders are semi-rigid, with rotational springs S_j = 8EI/L of each member about each axis (the least stiffness classified as rigid in a braced frame by EN 1993-1-8 Cl. 5.2.2.5)'
       }. Stringers are simply supported with the axial degree of freedom released at one end, so they carry no axial force. The cross girders frame into the bottom chord panel points and form U-frames with the verticals, which are the only lateral restraint of the top chords. ` +
       'The deck is non-structural. Without stringers it spans along the bridge between the cross girders; with stringers it spans across the bridge between the stringers (and the bottom chords where they support it). Load cases are combined linearly.'

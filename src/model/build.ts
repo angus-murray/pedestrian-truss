@@ -11,7 +11,7 @@
 import { sectionProps, type SectionProps } from '../design/section';
 import { E_STEEL, G_STEEL } from '../design/capacity';
 import type { FEElement, FENode, FrameModel, LoadCase, Vec3 } from '../fea/frame';
-import type { BridgeInput, GroupKey, GroupSection } from './types';
+import { jointFlex, type BridgeInput, type GroupKey, type GroupSection } from './types';
 
 export type CaseKey = 'G1s' | 'G1d' | 'G2' | 'Q' | 'W' | 'B';
 export const CASES: CaseKey[] = ['G1s', 'G1d', 'G2', 'Q', 'W', 'B'];
@@ -140,13 +140,17 @@ export function stringerFitError(input: BridgeInput, sections: BridgeInput['sect
 /**
  * Rotational springs (kNm/rad, about the major and minor axes) at the welded ends of the verticals, diagonals and
  * cross girders, or undefined for a rigid joint:
- *  - 'flex': the joint flexibility f (rad/kNm, the same f as the U-frame method), k = 1/f about both axes;
+ *  - 'as5100': the joint flexibility f of AS 5100.6 Cl. 5.6.3 for the connection type, k = 1/f about both axes;
+ *  - 'flex': the joint flexibility f entered (the same f as the U-frame method), k = 1/f about both axes;
  *  - 'ec3': the least stiffness at which EN 1993-1-8 Cl. 5.2.2.5 still classifies a joint in a braced frame as
  *    rigid, S_j = 8 E I / L of the member (about each axis, with L its length between nodes).
  */
 export function jointSprings(input: BridgeInput, group: GroupKey, sp: SectionProps, length: number): [number, number] | undefined {
   if (group !== 'vertical' && group !== 'diagonal' && group !== 'crossGirder') return undefined;
-  if (input.jointModel === 'flex') return input.uFrameJointFlex > 0 ? [1000 / input.uFrameJointFlex, 1000 / input.uFrameJointFlex] : undefined;
+  if (input.jointModel === 'flex' || input.jointModel === 'as5100') {
+    const f = jointFlex(input);
+    return f > 0 ? [1000 / f, 1000 / f] : undefined;
+  }
   if (input.jointModel === 'ec3') {
     const E = E_STEEL * 1000; // kPa
     return [(8 * E * sp.Ix * 1e-12) / length, (8 * E * sp.Iy * 1e-12) / length];

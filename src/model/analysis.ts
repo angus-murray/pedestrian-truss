@@ -6,7 +6,7 @@
 import { FrameSolver, type Vec3 } from '../fea/frame';
 import { lanczos } from '../fea/eigen';
 import { buildModel, CASES, effectiveSections, type BridgeModel, type CaseKey, type Member } from './build';
-import type { BridgeInput, GroupKey } from './types';
+import { jointFlex, type BridgeInput, type GroupKey } from './types';
 import { alphaM, compressionFromNom, majorBending, tensionCapacity, E_STEEL, type CompressionCapacity } from '../design/capacity';
 import { PHI } from '../design/section';
 
@@ -558,7 +558,7 @@ export function uFrameLength(model: BridgeModel): { le: number; delta: number; d
   const I2 = (input.sections.crossGirder.rotate ? cg.sp.Iy : cg.sp.Ix) * 1e-12;
   const Ic = (input.sections.topChord.rotate ? tc.sp.Ix : tc.sp.Iy) * 1e-12;
   const d1 = geo.H, d2 = geo.H;
-  const f = input.uFrameJointFlex / 1000; // rad/kNm
+  const f = jointFlex(input) / 1000; // rad/kNm
   let delta: number, Ld: number | null = null;
   if (warren) {
     Ld = Math.hypot(geo.H, geo.a / 2);

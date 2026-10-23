@@ -7,7 +7,19 @@ export type GroupKey = 'topChord' | 'bottomChord' | 'endPost' | 'vertical' | 'di
 export type LeMethod = 'buckling' | 'factor' | 'uframe';
 export type Finish = 'galvanised' | 'grey' | 'green' | 'charcoal';
 /** Welded joints at the ends of the web members and cross girders: rigid, or semi-rigid (rotational springs). */
-export type JointModel = 'rigid' | 'flex' | 'ec3';
+export type JointModel = 'rigid' | 'as5100' | 'flex' | 'ec3';
+/** Connection types of AS 5100.6 Cl. 5.6.3 for the joint flexibility f. */
+export type AsJoint = 'a' | 'b' | 'c';
+
+/**
+ * Joint flexibility f of AS 5100.6 Cl. 5.6.3 (cross-member to vertical of a U-frame), in mrad/kNm
+ * (1 × 10⁻¹⁰ rad/Nmm = 0.1 mrad/kNm).
+ */
+export const AS5100_JOINT_FLEX: Record<AsJoint, { f: number; label: string }> = {
+  a: { f: 0.05, label: '(a) Bolted, Unstiffened End Plates or Cleats' },
+  b: { f: 0.02, label: '(b) Bolted, Stiffened End Plates' },
+  c: { f: 0.01, label: '(c) Welded All Round, or Stiffened Both Sides' }
+};
 
 export interface GroupSection {
   category: SectionCategory;
@@ -84,6 +96,7 @@ export interface BridgeInput {
   restraintPct: number; // % of top chord force, 0 = off
   uFrameJointFlex: number; // mrad/kNm, joint flexibility f (U-frame method, and the semi-rigid joints with jointModel 'flex')
   jointModel: JointModel;
+  jointAsType: AsJoint;
   combos: Combination[];
   // design
   design: Record<GroupKey, GroupDesign>;
@@ -99,6 +112,11 @@ export interface BridgeInput {
   modalQ: number; // % of pedestrian load as mass
   optimiseTarget: number; // %, utilisation the section optimiser aims for
   maxSlenderness: number; // L/r limit of the truss members (AISC 360-16 D1 User Note: 300); 0 = not checked
+}
+
+/** Joint flexibility f (mrad/kNm) in use: from AS 5100.6 Cl. 5.6.3 with those joints, otherwise the input. */
+export function jointFlex(input: BridgeInput): number {
+  return input.jointModel === 'as5100' ? AS5100_JOINT_FLEX[input.jointAsType].f : input.uFrameJointFlex;
 }
 
 export const GROUPS: GroupKey[] = ['topChord', 'bottomChord', 'endPost', 'vertical', 'diagonal', 'crossGirder', 'stringer', 'bracing'];
@@ -199,7 +217,8 @@ export const DEFAULT_INPUT: BridgeInput = {
   barrierVertical: 0.75,
   restraintPct: 2.5,
   uFrameJointFlex: 0,
-  jointModel: 'rigid',
+  jointModel: 'as5100',
+  jointAsType: 'c',
   combos: DEFAULT_COMBOS,
   design: {
     topChord: des('buckling'),

@@ -16,6 +16,8 @@ import {
   type Finish,
   type GroupKey,
   type JointModel,
+  type AsJoint,
+  AS5100_JOINT_FLEX,
   type LeMethod,
   type TrussType
 } from '../model/types';
@@ -583,10 +585,26 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
         onChange={(v) => set('jointModel', v as JointModel)}
         options={[
           { value: 'rigid', label: 'Rigid' },
+          { value: 'as5100', label: 'Semi-Rigid, AS 5100.6 Cl. 5.6.3' },
           { value: 'flex', label: 'Semi-Rigid, Joint Flexibility f' },
           { value: 'ec3', label: 'Semi-Rigid, EN 1993-1-8 Rigid Limit (8EI/L)' }
         ]}
       />
+      {input.jointModel === 'as5100' ? (
+        <>
+          <SelectField
+            label="Connection (AS 5100.6 Cl. 5.6.3)"
+            value={input.jointAsType}
+            onChange={(v) => set('jointAsType', v as AsJoint)}
+            options={(Object.keys(AS5100_JOINT_FLEX) as AsJoint[]).map((k) => ({ value: k, label: AS5100_JOINT_FLEX[k].label }))}
+          />
+          <Readout
+            label="Joint Flexibility f"
+            value={`${AS5100_JOINT_FLEX[input.jointAsType].f.toFixed(2)} mrad/kNm (k = ${(1000 / AS5100_JOINT_FLEX[input.jointAsType].f).toLocaleString('en-AU')} kNm/rad)`}
+            title="AS 5100.6 Cl. 5.6.3: f = 0.5, 0.2 or 0.1 × 10⁻¹⁰ rad/Nmm for connection types (a), (b) and (c); used for the joint springs and the U-frame effective length method"
+          />
+        </>
+      ) : (
       <NumberField
         label="Joint Flexibility f (mrad/kNm)"
         value={input.uFrameJointFlex}
@@ -599,6 +617,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
         disabledText="–"
         title="Rotational flexibility of the welded joints: of the vertical (or diagonal) to cross girder joint in the U-frame effective length method, and of every web member and cross girder end with the 'Joint Flexibility f' joints; 0 for a rigid joint"
       />
+      )}
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Elements per Member" value={input.elementsPerMember} onChange={(v) => set('elementsPerMember', Math.round(v))} min={2} max={10} step={1} />
         <NumberField
