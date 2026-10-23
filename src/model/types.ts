@@ -86,8 +86,7 @@ export interface BridgeInput {
   elementsPerMember: number;
   participation: number; // %
   deflLimit: number; // span / x
-  freqVertMin: number; // Hz
-  freqVertMax: number; // Hz
+  vibDecrement: number; // logarithmic decrement δ (AS 5100.2 Table 13.4.2)
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
 }
@@ -189,8 +188,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   elementsPerMember: 4,
   participation: 10,
   deflLimit: 600,
-  freqVertMin: 1.5,
-  freqVertMax: 3.5,
-  freqLatMin: 1.3,
+  vibDecrement: 0.03,
+  freqLatMin: 1.5,
   modalQ: 0
 };

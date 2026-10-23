@@ -99,6 +99,38 @@ export interface SlsResult {
   stringer: { maxRel: number; member: number; limit: number } | null;
 }
 
+/** Vertical vibration check, AS 5100.2 Cl. 13.4. */
+export interface VibrationResult {
+  f0: number | null; // first vertical frequency (Hz)
+  y: number; // static deflection under 700 N at midspan (m)
+  delta: number;
+  psi: number;
+  a: number; // m/s²
+  limit: number; // 0.25 f0^0.78 (m/s²)
+  required: boolean; // f0 < 5 Hz
+  ok: boolean;
+  fLat: number | null;
+  latOk: boolean; // f_h ≥ limit
+}
+
+/**
+ * Dynamic response factor Ψ (AS 5100.2 Figure 13.4.2), as quadratic fits to the curves for δ = 0.03, 0.04 and
+ * 0.05 (linear between them), for spans of 10 to 50 m (the span is limited to that range).
+ */
+export function dynamicResponseFactor(span: number, delta: number): number {
+  const L = Math.min(50, Math.max(10, span));
+  const fit: [number, number, number, number][] = [
+    [0.03, 0.991, 0.432, -0.00294],
+    [0.04, 1.445, 0.367, -0.00265],
+    [0.05, 1.496, 0.338, -0.00275]
+  ];
+  const val = ([, a, b, c]: (typeof fit)[number]) => a + b * L + c * L * L;
+  const d = Math.min(0.05, Math.max(0.03, delta));
+  const i = d <= 0.04 ? 0 : 1;
+  const t = (d - fit[i][0]) / (fit[i + 1][0] - fit[i][0]);
+  return val(fit[i]) * (1 - t) + val(fit[i + 1]) * t;
+}
+
 export interface AnalysisResults {
   combos: ComboDef[];
   disp: Float32Array[]; // per combo, 6 per node
@@ -108,6 +140,7 @@ export interface AnalysisResults {
   modal: ModalResult;
   design: MemberDesign[];
   sls: SlsResult[];
+  vibration: VibrationResult | null;
   errors: string[];
   warnings: string[];
   dofs: number;
@@ -128,7 +161,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const nNodes = model.fe.nodes.length;
   const empty: AnalysisResults = {
     combos, disp: [], forces: [], caseDisp: {} as Record<CaseKey, Float32Array>, buckling: [],
-    modal: { freqs: [], modes: [], kinds: [], massRatio: [] }, design: [], sls: [], errors, warnings, dofs: solver.nEq, timeMs: 0
+    modal: { freqs: [], modes: [], kinds: [], massRatio: [] }, design: [], sls: [], vibration: null, errors, warnings, dofs: solver.nEq, timeMs: 0
   };
   if (bad) {
     errors.push(bad);
@@ -279,6 +312,31 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     modal.massRatio.push(Math.max(ex, ey, ez) / tot);
   });
 
+  // ---------------------------------------------------------- vertical vibration (AS 5100.2 Cl. 13.4)
+  // static deflection under one 700 N pedestrian at midspan, shared by the two bottom chords
+  const mid = model.fe.nodes
+    .map((nd, i) => ({ nd, i }))
+    .filter(({ nd }) => Math.abs(nd.z) < 1e-6 && Math.abs(Math.abs(nd.y) - model.geo.s / 2) < 1e-6)
+    .sort((p, q) => Math.abs(p.nd.x - input.span / 2) - Math.abs(q.nd.x - input.span / 2))
+    .slice(0, 2)
+    .map(({ i }) => i);
+  const uP = solver.expand(solver.K.solve(solver.loadVector({ nodal: mid.map((node) => ({ node, f: [0, 0, -0.35, 0, 0, 0] as [number, number, number, number, number, number] })), elements: [] })));
+  const yP = Math.max(...mid.map((nd) => -uP[nd * 6 + 2]));
+  const f0 = modal.freqs.find((_, i) => modal.kinds[i] === 'Vertical') ?? null;
+  const fLat = modal.freqs.find((_, i) => modal.kinds[i] === 'Lateral') ?? null;
+  const psi = dynamicResponseFactor(input.span, input.vibDecrement);
+  const accel = f0 !== null ? 4 * Math.PI ** 2 * f0 * f0 * yP * psi : 0;
+  const aLim = f0 !== null ? 0.25 * f0 ** 0.78 : 0;
+  const vibration: VibrationResult = {
+    f0, y: yP, delta: input.vibDecrement, psi, a: accel, limit: aLim,
+    required: f0 !== null && f0 < 5,
+    ok: f0 === null || f0 >= 5 || accel <= aLim + 1e-12,
+    fLat,
+    latOk: fLat === null || fLat >= input.freqLatMin
+  };
+  if (f0 === null) warnings.push('No vertical mode was found among the computed natural frequencies; the vertical vibration check could not be made.');
+  if (input.span < 10 || input.span > 50) warnings.push('The dynamic response factor Ψ (AS 5100.2 Figure 13.4.2) is defined for spans of 10 to 50 m; the nearest value is used.');
+
   // ---------------------------------------------------------- member design
   progress('Member design checks');
   const design = model.members.map((m) => designMember(model, m, combos, forces, axial, buckling, input));
@@ -327,7 +385,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const caseDisp = Object.fromEntries(CASES.map((c) => [c, Float32Array.from(caseU[c])])) as Record<CaseKey, Float32Array>;
   return {
     model,
-    results: { combos, disp, forces, caseDisp, buckling, modal, design, sls, errors, warnings, dofs: solver.nEq, timeMs: performance.now() - t0 }
+    results: { combos, disp, forces, caseDisp, buckling, modal, design, sls, vibration, errors, warnings, dofs: solver.nEq, timeMs: performance.now() - t0 }
   };
 }
 

@@ -19,6 +19,7 @@ export interface Summary {
   maxUtil: number;
   failing: { name: string; util: number }[];
   deflOk: boolean;
+  vibOk: boolean;
   lambdaMin: number | null;
   fVert: number | null;
   fLat: number | null;
@@ -30,13 +31,13 @@ export function summarise(model: BridgeModel, r: AnalysisResults, input: BridgeI
   const failing = r.design.filter((d) => d.util > 1 + 1e-9).sort((a, b) => b.util - a.util).map((d) => ({ name: model.members[d.member].name, util: d.util }));
   const deflOk = r.sls.every((s) => (s.limit === null || s.maxVert <= s.limit + 1e-9) && (!s.stringer || s.stringer.maxRel <= s.stringer.limit + 1e-9));
   const lambdaMin = r.buckling.reduce<number | null>((m, b) => (b.values.length ? Math.min(m ?? Infinity, b.values[0]) : m), null);
-  const fv = r.modal.freqs.find((_, i) => r.modal.kinds[i] === 'Vertical') ?? null;
-  const fl = r.modal.freqs.find((_, i) => r.modal.kinds[i] === 'Lateral') ?? null;
+  const v = r.vibration;
+  const fv = v?.f0 ?? null, fl = v?.fLat ?? null;
+  const vibOk = !v || v.ok;
   const dynWarnings: string[] = [];
-  if (fv !== null && fv >= input.freqVertMin && fv <= input.freqVertMax)
-    dynWarnings.push(`The first vertical frequency (${fv.toFixed(2)} Hz) is between ${input.freqVertMin} and ${input.freqVertMax} Hz: a dynamic assessment of pedestrian-induced vibration is required.`);
-  if (fl !== null && fl < input.freqLatMin) dynWarnings.push(`The first lateral frequency (${fl.toFixed(2)} Hz) is below ${input.freqLatMin} Hz: a dynamic assessment of lateral vibration is required.`);
-  return { maxUtil, failing, deflOk, lambdaMin, fVert: fv, fLat: fl, dynWarnings };
+  if (v && !v.latOk)
+    dynWarnings.push(`The first lateral frequency (${fl!.toFixed(2)} Hz) is below ${input.freqLatMin} Hz: special consideration of lateral excitation by pedestrians is required (AS 5100.2 Cl. 13.4.1).`);
+  return { maxUtil, failing, deflOk, vibOk, lambdaMin, fVert: fv, fLat: fl, dynWarnings };
 }
 
 export const Results: React.FC<{
@@ -57,12 +58,12 @@ export const Results: React.FC<{
   else if (!r) chip = <StatusChip kind="neutral">{stale ? 'Inputs Changed — click Solve to update' : 'Not Solved — click Solve to run the analysis'}</StatusChip>;
   else if (r.errors.length || !sum) chip = <StatusChip kind="fail">Analysis Error</StatusChip>;
   else {
-    const pass = !sum.failing.length && sum.deflOk;
+    const pass = !sum.failing.length && sum.deflOk && sum.vibOk;
     chip = pass ? (
       <StatusChip kind="pass">PASS (Max Util: {pct(sum.maxUtil)})</StatusChip>
     ) : (
       <StatusChip kind="fail">
-        FAIL ({[...sum.failing.slice(0, 3).map((f) => `${f.name} ${pct(f.util)}`), ...(sum.deflOk ? [] : ['Deflection'])].join(', ')}
+        FAIL ({[...sum.failing.slice(0, 3).map((f) => `${f.name} ${pct(f.util)}`), ...(sum.deflOk ? [] : ['Deflection']), ...(sum.vibOk ? [] : ['Vibration'])].join(', ')}
         {sum.failing.length > 3 ? ', …' : ''})
       </StatusChip>
     );
@@ -83,7 +84,7 @@ export const Results: React.FC<{
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <Stat label="Max Utilisation" value={pct(sum.maxUtil)} bad={sum.maxUtil > 1} />
               <Stat label={<>Lowest Buckling Factor <S s="λ" sub="c" /></>} value={sum.lambdaMin !== null ? sum.lambdaMin.toFixed(2) : '—'} bad={(sum.lambdaMin ?? 0) < 1} />
-              <Stat label="First Vertical Frequency" value={sum.fVert !== null ? `${sum.fVert.toFixed(2)} Hz` : '—'} warn={sum.dynWarnings.some((w) => w.includes('vertical'))} />
+              <Stat label="First Vertical Frequency" value={sum.fVert !== null ? `${sum.fVert.toFixed(2)} Hz` : '—'} bad={!sum.vibOk} />
               <Stat label="Steel Mass" value={`${model.steelMass.toFixed(2)} t`} />
             </div>
             <GoverningTable model={model} r={r} onSelect={onSelect} />
@@ -350,13 +351,14 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
           <tbody>
             {r.modal.freqs.map((f, i) => {
               const k = r.modal.kinds[i];
-              const flag = (k === 'Vertical' && f >= input.freqVertMin && f <= input.freqVertMax) || (k === 'Lateral' && f < input.freqLatMin);
+              const first = r.modal.kinds.indexOf(k) === i;
+              const flag = first && ((k === 'Vertical' && f < 5) || (k === 'Lateral' && f < input.freqLatMin));
               return (
                 <tr key={i}>
                   <td>{i + 1}</td>
                   <td>{f.toFixed(2)}</td>
                   <td>{k}</td>
-                  <td>{flag ? <span className="font-semibold text-amber-800">Dynamic assessment</span> : <Dash />}</td>
+                  <td>{flag ? <span className="font-semibold text-amber-800">{k === 'Vertical' ? 'Below 5 Hz: check' : 'Special consideration'}</span> : <Dash />}</td>
                 </tr>
               );
             })}
@@ -365,7 +367,60 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
         <p className="text-[11px] text-slate-500 mt-1">Mass from G1 and G2{input.modalQ > 0 ? ` and ${input.modalQ}% of the pedestrian load` : ''}.</p>
       </div>
     </div>
+    {r.vibration && <VibrationTable v={r.vibration} />}
   </section>
+);
+
+/** Vertical vibration, AS 5100.2 Cl. 13.4.2. */
+const VibrationTable: React.FC<{ v: NonNullable<AnalysisResults['vibration']> }> = ({ v }) => (
+  <div>
+    <h3 className="card-title mb-1">Vertical Vibration (AS 5100.2 Cl. 13.4)</h3>
+    <div className="overflow-x-auto">
+      <table className="rtable min-w-[640px]">
+        <Cols w={[14, 14, 12, 12, 16, 16, 16]} />
+        <thead>
+          <tr>
+            <th>
+              <S s="f" sub="0" /> (Hz)
+            </th>
+            <th>
+              <S s="y" /> (mm)
+            </th>
+            <th>
+              <S s="δ" />
+            </th>
+            <th>
+              <S s="Ψ" />
+            </th>
+            <th>
+              <S s="a" /> (m/s²)
+            </th>
+            <th>Limit (m/s²)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{v.f0 !== null ? v.f0.toFixed(2) : <Dash />}</td>
+            <td>{(v.y * 1000).toFixed(3)}</td>
+            <td>{v.delta.toFixed(2)}</td>
+            <td>{v.psi.toFixed(2)}</td>
+            <td>{v.required ? v.a.toFixed(3) : <Dash />}</td>
+            <td>{v.required ? v.limit.toFixed(3) : <Dash />}</td>
+            <td>{v.f0 === null ? <Dash /> : v.required ? <PassFail pass={v.ok} /> : <span className="font-semibold text-emerald-700">Not Required</span>}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p className="text-[11px] text-slate-500 mt-1">
+      Required when <S s="f" sub="0" /> &lt; 5 Hz: <S s="a" /> = 4π<sup>2</sup>
+      <S s="f" sub="0" />
+      <sup>2</sup>
+      <S s="y" />
+      <S s="Ψ" /> ≤ 0.25<S s="f" sub="0" />
+      <sup>0.78</sup>. <S s="f" sub="0" /> is the first vertical mode of the 3D model; <S s="y" /> is its static deflection under a 700 N pedestrian at midspan; <S s="Ψ" /> from Figure 13.4.2 for the span.
+    </p>
+  </div>
 );
 
 const BucklingPanel: React.FC<{ model: BridgeModel; r: AnalysisResults }> = ({ model, r }) => {

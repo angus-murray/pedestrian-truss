@@ -277,7 +277,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   }
 
   // ---------- Summary ----------
-  const pass = !sum.failing.length && sum.deflOk && !r.errors.length;
+  const pass = !sum.failing.length && sum.deflOk && sum.vibOk && !r.errors.length;
   heading(`${sec++}   Summary`);
   ensure(22);
   doc.setDrawColor(...INK);
@@ -294,6 +294,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   y += 22;
   if (sum.failing.length) paragraph(`Members over 100%: ${sum.failing.map((f) => `${f.name} (${pct(f.util)})`).join(', ')}.`, 8.5, INK);
   if (!sum.deflOk) paragraph('The vertical deflection exceeds the limit.', 8.5, INK);
+  if (!sum.vibOk) paragraph('The vertical acceleration under a pedestrian exceeds the AS 5100.2 Cl. 13.4 limit.', 8.5, INK);
   r.errors.forEach((e) => paragraph(e, 8.5, INK));
   [...r.warnings, ...sum.dynWarnings].forEach((w) => paragraph(`•  ${w}`));
   pairs([
@@ -446,6 +447,28 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
           .map((s) => ({ cells: [comboLabel(r.combos[s.combo]), f1(s.stringer!.maxRel * 1000), model.members[s.stringer!.member].name, `${f1(s.stringer!.limit * 1000)} ${passFail(s.stringer!.maxRel <= s.stringer!.limit + 1e-9)}`] }))
       ]
     );
+  }
+  if (r.vibration) {
+    const v = r.vibration;
+    subheading('Vertical vibration (AS 5100.2 Cl. 13.4)', 'a = 4π^2 f_0^2 y Ψ ≤ 0.25 f_0^0.78 when f_0 < 5 Hz');
+    table(
+      [14, 14, 12, 12, 16, 16, 16],
+      [
+        { cells: ['f_0 (Hz)', 'y (mm)', 'δ', 'Ψ', 'a (m/s²)', 'Limit (m/s²)', 'Result'], kind: 'head' },
+        {
+          cells: [
+            v.f0 !== null ? f2(v.f0) : '—',
+            (v.y * 1000).toFixed(3),
+            f2(v.delta),
+            f2(v.psi),
+            v.required ? v.a.toFixed(3) : '—',
+            v.required ? v.limit.toFixed(3) : '—',
+            v.f0 === null ? '—' : v.required ? passFail(v.ok) : 'Not required'
+          ]
+        }
+      ]
+    );
+    paragraph('f_0: first vertical mode of the 3D model. y: static deflection under a 700 N pedestrian at midspan. Ψ: AS 5100.2 Figure 13.4.2 for the span and δ.', 7.5, MUTED);
   }
   subheading('Natural frequencies');
   table(

@@ -13,7 +13,8 @@ loads) the app builds a 3D frame model and runs, in the browser:
 - member checks to AS 5100.6 (section and member capacities in compression, tension, bending, shear and combined
   actions), with effective lengths from the buckling analysis, from factors on the member length, or for the top
   chord from the U-frame stiffness;
-- deflection and frequency checks;
+- deflection checks (trusses, and stringers relative to the cross girders) and the AS 5100.2 Cl. 13.4 vertical
+  vibration check (maximum acceleration under one pedestrian);
 - a section optimiser that refines each member group towards 90% utilisation in a few analysis iterations.
 
 The 3D view shows the bridge as built (section shapes, mitred member ends, deck, kerbs, handrails, mesh screens,

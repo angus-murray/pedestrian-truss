@@ -501,10 +501,18 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set }> = ({ input, set })
           <NumberField label="Deflection Limit (L / …)" value={input.deflLimit} onChange={(v) => set('deflLimit', v)} min={100} max={2000} step={50} />
           <NumberField label="Mass From Q (%)" value={input.modalQ} onChange={(v) => set('modalQ', v)} min={0} max={100} step={5} title="Share of the pedestrian load included as mass for the natural frequencies" />
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <NumberField label="Vert. Min (Hz)" value={input.freqVertMin} onChange={(v) => set('freqVertMin', v)} min={0} max={10} step={0.1} decimals={1} title="Vertical frequencies between the minimum and maximum need a dynamic assessment" />
-          <NumberField label="Vert. Max (Hz)" value={input.freqVertMax} onChange={(v) => set('freqVertMax', v)} min={0} max={10} step={0.1} decimals={1} />
-          <NumberField label="Lateral Min (Hz)" value={input.freqLatMin} onChange={(v) => set('freqLatMin', v)} min={0} max={10} step={0.1} decimals={1} title="Lateral frequencies below this need a dynamic assessment" />
+        <div className="grid grid-cols-2 gap-2">
+          <SelectField
+            label="Damping (Log Decrement δ)"
+            value={String(input.vibDecrement)}
+            onChange={(v) => set('vibDecrement', +v)}
+            options={[
+              { value: '0.03', label: '0.03 Steel, Surfaced' },
+              { value: '0.04', label: '0.04 Composite' },
+              { value: '0.05', label: '0.05' }
+            ]}
+          />
+          <NumberField label="Lateral Min (Hz)" value={input.freqLatMin} onChange={(v) => set('freqLatMin', v)} min={0} max={10} step={0.1} decimals={1} title="A lateral frequency below this needs special consideration (AS 5100.2 Cl. 13.4.1: 1.5 Hz)" />
         </div>
       </div>
     </section>

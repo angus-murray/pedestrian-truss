@@ -117,7 +117,8 @@ export const AboutPage: React.FC = () => (
         items={[
           <>Vertical deflection of the trusses and cross girders under the SLS combinations marked for the deflection check (by default, pedestrian load alone) against span / limit. The dead load deflection is reported for the precamber.</>,
           <>Stringers: in the same combinations, the deflection of each stringer span relative to the cross girders (from the straight line between its two supports) against panel length / limit.</>,
-          <>Natural frequencies: a first vertical frequency between the minimum and maximum, or a first lateral frequency below the minimum, is reported as needing a dynamic assessment of pedestrian-induced vibration (limits are inputs; the defaults follow AS 5100.2).</>
+          <>Vertical vibration (AS 5100.2 Cl. 13.4): when the first vertical frequency <S s="f" /><sub>0</sub> is below 5 Hz, the maximum vertical acceleration under one 700 N pedestrian, <S s="a" /> = 4π<sup>2</sup><S s="f" /><sub>0</sub><sup>2</sup><S s="y" /><S s="Ψ" /> (Cl. 13.4.2), shall not exceed 0.25<S s="f" /><sub>0</sub><sup>0.78</sup> m/s². <S s="f" /><sub>0</sub> is the first vertical mode of the 3D model, <S s="y" /> the static deflection of the bottom chords under 700 N at midspan (shared by the two trusses), and <S s="Ψ" /> the dynamic response factor of Figure 13.4.2 for the span and the logarithmic decrement <S s="δ" /> (Table 13.4.2: 0.03 for steel with asphalt or epoxy surfacing, 0.04 for composite steel and concrete), from quadratic fits to the curves, linear between them, for spans of 10 to 50 m.</>,
+          <>Lateral vibration: a first lateral frequency below the minimum (1.5 Hz, Cl. 13.4.1) is reported as needing special consideration of lateral excitation by pedestrians.</>
         ]}
       />
     </Panel>
