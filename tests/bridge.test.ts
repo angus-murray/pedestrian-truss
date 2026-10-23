@@ -151,6 +151,7 @@ test('stringers carry no axial force: their nodes are not shared with the plan b
 test('optimiser keeps the section types and the web members within the chord widths', async () => {
   const { optimiseSections } = await import('../src/model/optimise');
   const { transverseWidth } = await import('../src/model/build');
+  const { sectionProps } = await import('../src/design/section');
   const r = optimiseSections(DEFAULT_INPUT);
   for (const g of Object.keys(r.sections) as (keyof typeof r.sections)[]) assert.equal(r.sections[g].category, DEFAULT_INPUT.sections[g].category);
   const tc = transverseWidth(r.sections.topChord, 'chord'), bc = transverseWidth(r.sections.bottomChord, 'chord');
@@ -158,6 +159,8 @@ test('optimiser keeps the section types and the web members within the chord wid
     assert.ok(w <= Math.min(tc, bc) + 1e-6, 'webs no wider than the chords');
     assert.ok(w >= DEFAULT_INPUT.minWebRatio * Math.max(tc, bc) - 1e-6, 'webs proportionate to the chords');
   }
+  // the top chord at least as large as the bottom chord
+  assert.ok(tc > bc + 1e-6 || (Math.abs(tc - bc) < 1e-6 && sectionProps(r.sections.topChord).mass >= sectionProps(r.sections.bottomChord).mass - 1e-9));
   assert.ok(Object.values(r.governs).length > 0);
 });
 

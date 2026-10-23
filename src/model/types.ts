@@ -59,7 +59,7 @@ export interface BridgeInput {
   panelTarget: number; // m
   depth: number; // m, centroid of bottom chord to centroid of top chord
   clearWidth: number; // m, between handrails
-  handrailWidth: number; // mm, inside face of truss to inside face of handrail
+  handrailWidth: number; // mm, handrail offset: inside face of truss to inside face of handrail
   cgLevel: number; // mm, top of cross girder above (+) or below (−) top of bottom chord
   bracing: BracingType;
   webPinned: boolean;

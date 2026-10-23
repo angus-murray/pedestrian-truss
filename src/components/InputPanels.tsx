@@ -86,10 +86,10 @@ export const InputPanels: React.FC<{
         </div>
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Clear Width (m)" value={input.clearWidth} onChange={(v) => set('clearWidth', v)} min={1} max={8} step={0.1} decimals={2} title="Between the inside faces of the handrails" />
-          <NumberField label="Handrail Width (mm)" value={input.handrailWidth} onChange={(v) => set('handrailWidth', v)} min={0} max={400} step={10} title="Inside face of the truss to the inside face of the handrail" />
+          <NumberField label="Handrail Offset (mm)" value={input.handrailWidth} onChange={(v) => set('handrailWidth', v)} min={0} max={400} step={10} title="Inside face of the truss to the inside face of the handrail" />
         </div>
         <Readout label="Chord Width" value={`${(geo.chordWidth * 1000).toFixed(0)} mm`} title="Horizontal width of the wider chord" />
-        <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail width + chord width" />
+        <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail offset + chord width" />
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Cross Girder Level (mm)" value={input.cgLevel} onChange={(v) => set('cgLevel', v)} min={-600} max={600} step={5} title="Top of the cross girders relative to the top of the bottom chord: positive raises them, negative drops them. Offset cross girders are connected to the bottom chord nodes by rigid links." />
           <SelectField

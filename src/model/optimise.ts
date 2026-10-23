@@ -35,6 +35,15 @@ function cost(input: BridgeInput, spec: GroupSection, g: GroupKey): number {
 }
 
 /**
+ * The top chord at least as large as the bottom chord: wider across the bridge, or as wide and at least as heavy.
+ */
+function chordOrderOk(sections: BridgeInput['sections']): boolean {
+  const wt = transverseWidth(sections.topChord, 'chord'), wb = transverseWidth(sections.bottomChord, 'chord');
+  if (Math.abs(wt - wb) > 1e-6) return wt > wb;
+  return sectionProps(sections.topChord).mass >= sectionProps(sections.bottomChord).mass - 1e-9;
+}
+
+/**
  * The web members within the chord widths: no wider than the narrower chord, and at least minWebRatio × the wider
  * chord (a Warren truss has no verticals).
  */
@@ -124,6 +133,8 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
       const chordWidthMax = Math.max(transverseWidth(next.topChord, 'chord'), transverseWidth(next.bottomChord, 'chord'));
       let narrowestOk = Infinity, narrowestBest = { w: 0, u: Infinity };
       let pickWhy = '', bestWhy = '', widthSkipped = false;
+      // a chord that would make the bottom chord larger than the top chord is taken only if no other meets the target
+      let deferred: { name: string; why: string } | null = null;
       for (const c of cands) {
         const sp = sectionProps({ category: spec.category, name: c.name, grade: spec.grade });
         if (verifying && sp.mass < old.mass - 1e-9) continue;
@@ -165,6 +176,10 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
           if (width > chordWidth + 1e-6 || width < cur.minWebRatio * chordWidthMax - 1e-6) continue;
         }
         if (u <= target) {
+          if (chord && !chordOrderOk({ ...next, [g]: { ...spec, name: c.name } })) {
+            deferred ??= { name: c.name, why };
+            continue;
+          }
           pick = c.name;
           pickWhy = why;
           break;
@@ -176,6 +191,10 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
         }
       }
       if (webGroup) webNeedNext = Math.max(webNeedNext, narrowestOk < Infinity ? narrowestOk : narrowestBest.w);
+      if (pick === null && deferred) {
+        pick = deferred.name;
+        pickWhy = deferred.why;
+      }
       let choice = pick ?? bestName;
       governs[g] = widthSkipped ? 'width of the web members' : pick !== null ? pickWhy : bestWhy || 'strength';
       const hist = (history[g] ??= [spec.name]);
@@ -253,7 +272,7 @@ function trim(input: BridgeInput, analysed: ReturnType<typeof runAnalysis> | nul
       if (tries >= TRIM_TRIES) break;
       const sections = { ...cur.sections, [g]: { ...spec, name: c.name } };
       const trial = { ...cur, sections };
-      if (stringerFitError(trial) || (!proportionsOk(trial) && proportionsOk(cur))) continue;
+      if (stringerFitError(trial) || (!proportionsOk(trial) && proportionsOk(cur)) || (!chordOrderOk(sections) && chordOrderOk(cur.sections))) continue;
       tries++;
       progress(`Refining: ${groupLabel(g)} ${c.name}`);
       const r = runAnalysis(trial);
