@@ -440,7 +440,6 @@ export function buildModel(input: BridgeInput): BridgeModel {
   sides.forEach(([side], si) => top[si].forEach((nd) => topNodes.push({ node: nd, side, x: nodes[nd].x })));
 
   if (deckTop + hrTop > H + dTC / 2 + 0.3) warnings.push('The top handrail is more than 300 mm above the top of the top chord.');
-  if (hrFrac >= 1) warnings.push('The top handrail is above the top chord: the barrier load is applied at the top chord.');
   const errors: string[] = [];
   const fit = stringerFitError(input);
   if (fit) errors.push(fit);
