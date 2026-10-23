@@ -604,23 +604,18 @@ export function designMember(
         leMethod = 'Buckling Analysis';
         if (b && b.values.length) {
           // each axis takes N_om from the lowest mode in which the member buckles about that axis; with none among
-          // the computed modes, the member's own buckling factor exceeds that of the last mode computed (a lower
-          // bound), and where both its end nodes are braced in that direction its Euler load for its length between
-          // nodes (k = 1) is used if higher. Truss members are braced in plane by the triangulation; out of plane only
-          // the bottom chord is (by the plan bracing): the top chord nodes are held by the U-frames alone.
+          // the computed modes, its own pin-ended Euler load for its length between nodes (k = 1), or the lower bound
+          // from the last mode computed (λ N*, the member's own factor being higher) where that is higher
           const thr = input.participation / 100, last = b.values.length - 1;
-          const inTruss = m.group === 'topChord' || m.group === 'bottomChord' || m.group === 'endPost' || m.group === 'vertical' || m.group === 'diagonal';
-          const majorOut = Math.abs(m.depthDir[1]) > 0.7; // major-axis bending deflects the member transversely
-          const outBraced = !inTruss || (m.group === 'bottomChord' && input.bracing !== 'none');
-          const axis = (part: Float32Array[], I: number, braced: boolean) => {
+          const axis = (part: Float32Array[], I: number) => {
             const k = b.values.findIndex((_, i) => part[i][m.id] >= thr);
             if (k >= 0) return { k, Nom: b.values[k] * Math.abs(N) * nomScale, fb: null };
             const bound = b.values[last] * Math.abs(N) * nomScale;
             const euler = (Math.PI ** 2 * E_STEEL * I) / (L * 1000) ** 2 / 1000;
-            return braced && euler > bound ? { k: -1, Nom: euler, fb: 'euler' as const } : { k: -1, Nom: bound, fb: 'bound' as const };
+            return euler >= bound ? { k: -1, Nom: euler, fb: 'euler' as const } : { k: -1, Nom: bound, fb: 'bound' as const };
           };
-          const ma = axis(b.participationMajor, sp.Ix, majorOut ? outBraced : true);
-          const mi = axis(b.participationMinor, sp.Iy, majorOut ? true : outBraced);
+          const ma = axis(b.participationMajor, sp.Ix);
+          const mi = axis(b.participationMinor, sp.Iy);
           NomMajor = ma.Nom;
           NomMinor = mi.Nom;
           modeMajor = ma.k >= 0 ? ma.k + 1 : null;

@@ -425,15 +425,23 @@ export function buildModel(input: BridgeInput): BridgeModel {
     }
   }
 
-  // barrier load at the top handrail on the web members that carry the handrail brackets, outwards
-  if (input.barrier > 0)
+  // barrier load at the top handrail on the web members that carry the handrail brackets: horizontal outwards and,
+  // simultaneously, vertical downwards (AS 5100.2 Cl. 12.5). The vertical load acts on the handrail line, inside the
+  // truss centreline by (s − clear width) / 2; above the top chord (handrail higher than the truss) both act at the
+  // top chord node, with the moment of their offsets.
+  if (input.barrier > 0 || input.barrierVertical > 0)
     for (const m of members) {
       if (m.group !== 'vertical' && m.group !== 'endPost' && !(m.group === 'diagonal' && !verticals)) continue;
       const zt = deckTop + hrTop;
       const i = m.nodes.findIndex((nd) => Math.abs(nodes[nd].z - zt) < 1e-6);
       const nd = i >= 0 ? m.nodes[i] : m.a[2] > m.b[2] ? m.nodes[0] : m.nodes[m.nodes.length - 1];
       const trib = verticals && m.group === 'vertical' ? a : a / 2;
-      nodal.B.push({ node: nd, f: [0, (m.side === 'A' ? -1 : 1) * input.barrier * trib, 0, 0, 0, 0] });
+      const out = m.side === 'A' ? -1 : 1; // truss A at −s/2
+      const fy = out * input.barrier * trib, fz = -input.barrierVertical * trib;
+      const ez = zt - nodes[nd].z; // handrail above the node
+      const dy = -out * (s - input.clearWidth) / 2; // handrail line from the truss centreline (inwards)
+      // M = r × F about X, r = (0, dy, ez): M_x = dy F_z − ez F_y
+      nodal.B.push({ node: nd, f: [0, fy, fz, dy * fz - ez * fy, 0, 0] });
     }
 
   const cases = Object.fromEntries(

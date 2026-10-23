@@ -106,9 +106,13 @@ test('buckling analysis method: N_om for each axis, top chord in-plane from its 
   assert.ok(Math.abs(tc.compMajor!.Nom / euler - 1) < 1e-6);
   assert.ok(tc.compMinor!.Nom < tc.compMajor!.Nom);
   assert.equal(tc.comp, tc.compMinor);
-  // the end posts are held out of plane only by the end U-frames: the lower bound from the last mode, never Euler
-  const ep = results.design.find((d) => model.members[d.member].group === 'endPost' && d.comp && d.modeMajor === null);
-  if (ep) assert.equal(ep.fallbackMajor, 'bound');
+  // no qualifying mode: never below the member's pin-ended Euler load
+  for (const d of results.design) {
+    if (!d.compMajor || !d.compMinor) continue;
+    const sp = model.members[d.member].sp, Lm = model.members[d.member].length * 1000;
+    if (d.modeMajor === null) assert.ok(d.compMajor.Nom >= (Math.PI ** 2 * 200000 * sp.Ix) / Lm ** 2 / 1000 - 1e-6);
+    if (d.modeMinor === null) assert.ok(d.compMinor.Nom >= (Math.PI ** 2 * 200000 * sp.Iy) / Lm ** 2 / 1000 - 1e-6);
+  }
 });
 
 test('precamber: hog for the permanent loads at the bottom chord panel points, limit span / 300', () => {
