@@ -131,3 +131,30 @@ test('vertical vibration: f0 and the acceleration do not depend on the pedestria
   // the natural frequencies themselves include the pedestrian mass
   assert.ok(withQ.modal.freqs[0] < results.modal.freqs[0]);
 });
+
+test('web members wider than the chords are flagged', async () => {
+  const { webWidthWarning } = await import('../src/model/build');
+  assert.equal(webWidthWarning(DEFAULT_INPUT), null);
+  const wide = { ...DEFAULT_INPUT, sections: { ...DEFAULT_INPUT.sections, vertical: { ...DEFAULT_INPUT.sections.vertical, name: '300×300×8.0 SHS' } } };
+  assert.match(webWidthWarning(wide) ?? '', /verticals \(300 mm\)/);
+  // a Warren truss has no verticals
+  assert.equal(webWidthWarning({ ...wide, trussType: 'warren' }), null);
+});
+
+test('stringers carry no axial force: their nodes are not shared with the plan bracing', () => {
+  const inp = { ...DEFAULT_INPUT, stringerCount: 3, stringerSpacing: 0.9, restraintPct: 2.5 };
+  const r = runAnalysis(inp);
+  for (const m of r.model.members.filter((x) => x.group === 'stringer'))
+    for (const sf of r.results.forces) for (let s = 0; s < m.stations.length; s++) assert.ok(Math.abs(sf[m.id][s * 6]) < 1e-3, `${m.name} N = ${sf[m.id][s * 6]}`);
+});
+
+test('optimiser keeps the section types and the web members within the chord widths', async () => {
+  const { optimiseSections } = await import('../src/model/optimise');
+  const { transverseWidth } = await import('../src/model/build');
+  const r = optimiseSections(DEFAULT_INPUT);
+  for (const g of Object.keys(r.sections) as (keyof typeof r.sections)[]) assert.equal(r.sections[g].category, DEFAULT_INPUT.sections[g].category);
+  const chord = Math.min(transverseWidth(r.sections.topChord, 'chord'), transverseWidth(r.sections.bottomChord, 'chord'));
+  assert.ok(transverseWidth(r.sections.vertical, 'web') <= chord + 1e-6);
+  assert.ok(transverseWidth(r.sections.diagonal, 'web') <= chord + 1e-6);
+  assert.ok(Object.values(r.governs).length > 0);
+});

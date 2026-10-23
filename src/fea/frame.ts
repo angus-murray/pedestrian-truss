@@ -506,6 +506,23 @@ export class FrameSolver {
     return [plane([1, 5, 7, 11]), plane([2, 4, 8, 10])];
   }
 
+  /** Elastic bending strain energy of an element by plane, as elementGeometricEnergyAxes: [minor axis, major axis]. */
+  elementStrainEnergyAxes(disp: Float64Array, el: number): [number, number] {
+    const ed = this.els[el], e = this.model.elements[el];
+    const ug = new Float64Array(12);
+    for (let d = 0; d < 6; d++) {
+      ug[d] = disp[e.i * 6 + d];
+      ug[6 + d] = disp[e.j * 6 + d];
+    }
+    const ul = toLocalVec(ug, ed.R);
+    const plane = (dofs: number[]) => {
+      let s = 0;
+      for (const i of dofs) for (const m of dofs) s += ul[i] * ed.k[i * 12 + m] * ul[m];
+      return s / 2;
+    };
+    return [plane([1, 5, 7, 11]), plane([2, 4, 8, 10])];
+  }
+
   elementLength(el: number) {
     return this.els[el].L;
   }

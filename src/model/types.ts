@@ -94,6 +94,7 @@ export interface BridgeInput {
   vibDecrement: number; // logarithmic decrement δ (AS 5100.2 Table 13.4.2)
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
+  optimiseTarget: number; // %, utilisation the section optimiser aims for
 }
 
 export const GROUPS: GroupKey[] = ['topChord', 'bottomChord', 'endPost', 'vertical', 'diagonal', 'crossGirder', 'stringer', 'bracing'];
@@ -214,5 +215,6 @@ export const DEFAULT_INPUT: BridgeInput = {
   precamberLimit: 300,
   vibDecrement: 0.03,
   freqLatMin: 1.5,
-  modalQ: 0
+  modalQ: 0,
+  optimiseTarget: 90
 };

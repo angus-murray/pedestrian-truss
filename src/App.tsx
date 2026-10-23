@@ -3,6 +3,7 @@ import { AppHeader, Modal, ReportDialog, today } from 'engineering-ui';
 import { FolderOpen, RotateCcw, Save } from 'lucide-react';
 import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './model/types';
 import { buildModel } from './model/build';
+import type { OptimiseResult } from './model/optimise';
 import { useAnalysis } from './model/useAnalysis';
 import { InputPanels } from './components/InputPanels';
 import { Results } from './components/Results';
@@ -56,12 +57,12 @@ export default function App() {
   }, [input]);
   const model = useMemo(() => buildModel(input), [input]);
   const { results, stale, solving, progress, error, solve, optimise, cancel } = useAnalysis(input);
-  const [optLog, setOptLog] = useState<string[] | null>(null);
+  const [optLog, setOptLog] = useState<Pick<OptimiseResult, 'log' | 'governs'> | null>(null);
   const onOptimise = () => {
     setOptLog(null);
     optimise((r) => {
       setInput((p) => ({ ...p, sections: r.sections }));
-      setOptLog(r.log);
+      setOptLog({ log: r.log, governs: r.governs });
     });
   };
   const [selected, setSelected] = useState<number | null>(null);

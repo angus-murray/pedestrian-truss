@@ -11,7 +11,7 @@
 import { sectionProps, type SectionProps } from '../design/section';
 import { E_STEEL, G_STEEL } from '../design/capacity';
 import type { FEElement, FENode, FrameModel, LoadCase, Vec3 } from '../fea/frame';
-import type { BridgeInput, GroupKey } from './types';
+import type { BridgeInput, GroupKey, GroupSection } from './types';
 
 export type CaseKey = 'G1s' | 'G1d' | 'G2' | 'Q' | 'W' | 'B';
 export const CASES: CaseKey[] = ['G1s', 'G1d', 'G2', 'Q', 'W', 'B'];
@@ -137,6 +137,31 @@ export function stringerFitError(input: BridgeInput, sections: BridgeInput['sect
   return `The outer stringers (±${outer.toFixed(3)} m from the centreline) are outside the cross girders, which span ±${limit.toFixed(3)} m between the bottom chords. Reduce the number or the spacing of the stringers.`;
 }
 
+/**
+ * Width across the bridge (m) of a chord (section depth vertical unless rotated: its flange width) or of a vertical
+ * or diagonal (section depth across the bridge unless rotated: its depth).
+ */
+export function transverseWidth(spec: GroupSection, kind: 'chord' | 'web'): number {
+  const sp = sectionProps(spec);
+  return kind === 'chord' ? hdim(sp, !spec.rotate) : vdim(sp, !spec.rotate);
+}
+
+/**
+ * Warning when the verticals or diagonals are wider (across the bridge) than the narrower chord, so that they would
+ * stand out of the chord faces, or null. The end posts take the top chord section.
+ */
+export function webWidthWarning(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): string | null {
+  const secs = effectiveSections({ ...input, sections });
+  const wChord = Math.min(transverseWidth(secs.topChord, 'chord'), transverseWidth(secs.bottomChord, 'chord'));
+  const groups: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : ['vertical', 'diagonal'];
+  const wide = groups
+    .map((g) => ({ g, w: transverseWidth(secs[g], 'web') }))
+    .filter(({ w }) => w > wChord + 1e-6);
+  if (!wide.length) return null;
+  const names = wide.map(({ g, w }) => `${g === 'vertical' ? 'verticals' : 'diagonals'} (${(w * 1000).toFixed(0)} mm)`).join(' and ');
+  return `The ${names} are wider across the bridge than the chords (${(wChord * 1000).toFixed(0)} mm) and stand out of the chord faces. Use web sections no wider than the chords.`;
+}
+
 export function panelCount(input: BridgeInput): number {
   return 2 * Math.max(2, Math.round(input.span / (2 * Math.max(0.5, input.panelTarget))));
 }
@@ -174,7 +199,11 @@ export function buildModel(input: BridgeInput): BridgeModel {
   // ------------------------------------------------------------ nodes and elements
   const nodes: FENode[] = [];
   const nodeKey = new Map<string, number>();
-  const node = (x: number, y: number, z: number) => {
+  const node = (x: number, y: number, z: number, shared = true) => {
+    if (!shared) {
+      nodes.push({ x, y, z });
+      return nodes.length - 1;
+    }
     const k = `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`;
     let i = nodeKey.get(k);
     if (i === undefined) {
@@ -206,7 +235,9 @@ export function buildModel(input: BridgeInput): BridgeModel {
     const tol = 0.35 / nSeg;
     let fr = Array.from({ length: nSeg + 1 }, (_, i) => i / nSeg).filter((f, i) => i === 0 || i === nSeg || extra.every((e) => Math.abs(e - f) > tol));
     fr = [...fr, ...extra].sort((x, y) => x - y).filter((f, i, arr) => i === 0 || f - arr[i - 1] > 1e-6);
-    const ns = fr.map((f, i) => (i === 0 ? na : i === fr.length - 1 ? nb : node(A[0] + f * (B[0] - A[0]), A[1] + f * (B[1] - A[1]), A[2] + f * (B[2] - A[2]))));
+    // the stringers' own nodes are not shared: the plan bracing crosses below them (at the same level in the model)
+    const shared = group !== 'stringer';
+    const ns = fr.map((f, i) => (i === 0 ? na : i === fr.length - 1 ? nb : node(A[0] + f * (B[0] - A[0]), A[1] + f * (B[1] - A[1]), A[2] + f * (B[2] - A[2]), shared)));
     const id = members.length;
     const s0 = sp[group];
     const els: number[] = [];
@@ -480,6 +511,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const errors: string[] = [];
   const fit = stringerFitError(input);
   if (fit) errors.push(fit);
+  const webWide = webWidthWarning(input);
+  if (webWide) warnings.push(webWide);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
   if (ang < 30 || ang > 65) warnings.push(`Diagonals are at ${ang.toFixed(0)}° to the horizontal (30° to 65° is usual).`);
 

@@ -3,7 +3,7 @@
  * section type and grade) towards a target utilisation, in a few analysis iterations.
  *
  * Each iteration analyses the bridge, then for each group re-checks every member with each candidate section
- * using that analysis's member actions (the elastic buckling load scaled by the change in the smaller second
+ * using that analysis's member actions (the elastic buckling load about each axis scaled by the change in the second
  * moment of area), and takes the lightest section whose largest utilisation is at most the target. The chords are
  * also kept stiff enough for the deflection limit and the vertical vibration check (AS 5100.2 Cl. 13.4), and the
  * stringers for their deflection limit, from estimates scaled from the last analysis: truss stiffness from the chord
@@ -13,25 +13,33 @@
 import { sectionProps } from '../design/section';
 import { sectionsOf } from '../data/sections';
 import { designMember, runAnalysis } from './analysis';
-import { stringerFitError } from './build';
+import { stringerFitError, transverseWidth, webWidthWarning } from './build';
 import { GROUPS, type BridgeInput, type GroupKey } from './types';
 
 export interface OptimiseResult {
   sections: BridgeInput['sections'];
   iterations: number;
   log: string[];
+  /** The check that set the size of each group in the last selection (strength, deflection, vibration…). */
+  governs: Partial<Record<GroupKey, string>>;
 }
 
 export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, progress: (msg: string) => void = () => {}): OptimiseResult {
   let cur = input;
   const log: string[] = [];
+  const governs: Partial<Record<GroupKey, string>> = {};
   // sections used by each group in earlier iterations, and groups held after they started to alternate
   const history: Partial<Record<GroupKey, string[]>> = {};
   const held = new Set<GroupKey>();
   let it = 0;
+  let last: ReturnType<typeof runAnalysis> | null = null; // analysis of the current sections
+  // web members are kept no wider than the chords: the narrowest width (m) at which the verticals and diagonals
+  // reach the target, from the last iteration, is the least width of the chords
+  let webNeed = 0;
   const extra = 2; // verification iterations after maxIter, only when the design still fails a check (upsizing only)
   for (it = 1; it <= maxIter + extra; it++) {
-    const { model, results } = runAnalysis(cur, (m) => progress(`Iteration ${it}: ${m}`));
+    last = runAnalysis(cur, (m) => progress(`Iteration ${it}: ${m}`));
+    const { model, results } = last;
     const verifying = it > maxIter;
     if (verifying && !failsChecks(results)) {
       log.push(`Iteration ${it}: all checks met.`);
@@ -63,6 +71,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
     const k0 = chordStiff(cur.sections);
     const next = { ...cur.sections };
     let changed = false;
+    let webNeedNext = 0;
     for (const g of GROUPS) {
       if (g === 'endPost' || held.has(g)) continue; // the end posts take the top chord section
       const members = model.members.filter((m) => m.group === g || (g === 'topChord' && m.group === 'endPost'));
@@ -73,38 +82,64 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
       const cands = sectionsOf(spec.category).slice().sort((a, b) => a.massPerMetre - b.massPerMetre);
       // lightest section at or below the target; failing that, the one with the lowest utilisation
       let pick: string | null = null, bestU = Infinity, bestName = spec.name;
+      const webGroup = g === 'vertical' || g === 'diagonal';
+      const chordWidth = Math.min(transverseWidth(next.topChord, 'chord'), transverseWidth(next.bottomChord, 'chord'));
+      let narrowestOk = Infinity, narrowestBest = { w: 0, u: Infinity };
+      let pickWhy = '', bestWhy = '', widthSkipped = false;
       for (const c of cands) {
         const sp = sectionProps({ category: spec.category, name: c.name, grade: spec.grade });
         if (verifying && sp.mass < old.mass - 1e-9) continue;
+        const width = transverseWidth({ ...spec, name: c.name }, chord ? 'chord' : 'web');
         // narrower chords bring the trusses closer: the stringers must still be on the cross girders
         if ((g === 'topChord' || g === 'bottomChord') && stringerFitError(cur, { ...next, [g]: { ...spec, name: c.name } })) continue;
-        const scale = Math.min(sp.Ix, sp.Iy) / Math.min(old.Ix, old.Iy);
-        let u = 0;
-        for (const m of members) u = Math.max(u, designMember(model, { ...m, sp }, results.combos, results.forces, [], results.buckling, cur, scale).utilRaw);
+        const scale = { major: sp.Ix / old.Ix, minor: sp.Iy / old.Iy };
+        let u = 0, why = 'strength';
+        const bump = (v: number, w: string) => {
+          if (v > u) {
+            u = v;
+            why = w;
+          }
+        };
+        for (const m of members) bump(designMember(model, { ...m, sp }, results.combos, results.forces, [], results.buckling, cur, scale).utilRaw, 'strength');
         // chords: deflection (inversely proportional to the chord area) to stay within 98% of the limit
         if (chord) {
           // deflection and vibration with this chord (the other chord as selected so far)
           const trial = { ...next, [g]: { ...spec, name: c.name } };
           const kr = chordStiff(trial) / k0;
-          u = Math.max(u, (defl / kr / SLS_MARGIN) * target);
+          bump((defl / kr / SLS_MARGIN) * target, 'deflection');
           if (vib?.f0) {
             const mr = massTotal / (massTotal + ((sp.mass - old.mass) * groupLength(g) * (1 + cur.connectionAllowance / 100)) / 1000);
             const f = vib.f0 * Math.sqrt(kr * mr);
-            if (f < 5) u = Math.max(u, ((vib.a * mr) / (0.25 * f ** 0.78) / SLS_MARGIN) * target);
+            if (f < 5) bump(((vib.a * mr) / (0.25 * f ** 0.78) / SLS_MARGIN) * target, 'vibration');
           }
         }
-        if (g === 'bottomChord' && horizDefl > 0) u = Math.max(u, ((horizDefl * old.A) / sp.A / SLS_MARGIN) * target);
-        if (g === 'stringer' && stringerDefl > 0) u = Math.max(u, ((stringerDefl * old.Ix) / sp.Ix / SLS_MARGIN) * target);
+        if (g === 'bottomChord' && horizDefl > 0) bump(((horizDefl * old.A) / sp.A / SLS_MARGIN) * target, 'horizontal deflection');
+        if (g === 'stringer' && stringerDefl > 0) bump(((stringerDefl * old.Ix) / sp.Ix / SLS_MARGIN) * target, 'stringer deflection');
+        // chords no narrower than the web members need (a lighter chord that met the target otherwise is noted)
+        if (chord && width < webNeed - 1e-6) {
+          if (u <= target) widthSkipped = true;
+          continue;
+        }
+        if (webGroup) {
+          // the width the chords need for this web group, whether or not the present chords provide it
+          if (u <= target) narrowestOk = Math.min(narrowestOk, width);
+          if (u < narrowestBest.u) narrowestBest = { w: width, u };
+          if (width > chordWidth + 1e-6) continue;
+        }
         if (u <= target) {
           pick = c.name;
+          pickWhy = why;
           break;
         }
         if (u < bestU) {
           bestU = u;
           bestName = c.name;
+          bestWhy = why;
         }
       }
+      if (webGroup) webNeedNext = Math.max(webNeedNext, narrowestOk < Infinity ? narrowestOk : narrowestBest.w);
       let choice = pick ?? bestName;
+      governs[g] = widthSkipped ? 'width of the web members' : pick !== null ? pickWhy : bestWhy || 'strength';
       const hist = (history[g] ??= [spec.name]);
       // alternating between two sizes: take the heavier and hold it
       if (choice !== spec.name && hist.length >= 2 && hist[hist.length - 2] === choice) {
@@ -115,11 +150,14 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
       }
       if (choice !== spec.name) {
         changed = true;
-        log.push(`Iteration ${it}: ${groupLabel(g)} ${spec.name} → ${choice}${pick === null ? ` (no ${spec.category} reaches ${Math.round(target * 100)}%)` : ''}`);
+        log.push(`Iteration ${it}: ${groupLabel(g)} ${spec.name} → ${choice} (${governs[g]}${pick === null ? `; no ${spec.category} reaches ${Math.round(target * 100)}%` : ''})`);
         next[g] = { ...spec, name: choice };
       }
       hist.push(choice);
     }
+    // with webs that need wider chords, the chords are reviewed again
+    if (webNeedNext > webNeed + 1e-6) changed = true;
+    webNeed = webNeedNext;
     if (!changed) {
       // the estimates found nothing to change but the design still fails a check: verify and upsize
       if (!verifying && failsChecks(results)) {
@@ -130,9 +168,72 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
       break;
     }
     cur = { ...cur, sections: next };
+    last = null;
   }
-  return { sections: cur.sections, iterations: Math.min(it, maxIter + extra), log };
+  cur = trim(cur, last, target, governs, held, log, progress);
+  return { sections: cur.sections, iterations: Math.min(it, maxIter + extra), log, governs };
 }
+
+/** Largest utilisation of each group. */
+function groupMax(r: ReturnType<typeof runAnalysis>): Partial<Record<GroupKey, number>> {
+  const out: Partial<Record<GroupKey, number>> = {};
+  for (const d of r.results.design) {
+    const g = r.model.members[d.member].group as GroupKey;
+    out[g] = Math.max(out[g] ?? 0, d.util);
+  }
+  return out;
+}
+
+/**
+ * Final refinement with full analyses, as a designer would by hand: the groups sized by a serviceability estimate
+ * (deflection, vibration) or held after alternating take the next lighter sections of their type in turn (up to
+ * TRIM_TRIES each) while every check is still met, no group exceeds the target (or its utilisation before the step,
+ * if higher), and the web members stay within the chord widths.
+ */
+function trim(input: BridgeInput, analysed: ReturnType<typeof runAnalysis> | null, target: number, governs: Partial<Record<GroupKey, string>>, held: Set<GroupKey>, log: string[], progress: (msg: string) => void): BridgeInput {
+  const order: GroupKey[] = ['topChord', 'bottomChord', 'crossGirder', 'stringer', 'vertical', 'diagonal', 'bracing'];
+  // strength and the stringer deflection (∝ 1 / I_x) are checked exactly in the selection; the truss deflection,
+  // vibration and horizontal deflection are estimates
+  const estimated = ['deflection', 'vibration', 'horizontal deflection'];
+  const groups = order.filter((g) => held.has(g) || estimated.includes(governs[g] ?? ''));
+  if (!groups.length) return input;
+  let cur = input;
+  progress('Refining: checking the design');
+  let base = analysed ?? runAnalysis(cur);
+  if (failsChecks(base.results)) return cur;
+  let baseMax = groupMax(base);
+  for (const g of groups) {
+    const spec = cur.sections[g];
+    if (!base.model.members.some((m) => m.group === g)) continue;
+    const massOf = (name: string) => sectionProps({ ...spec, name }).mass;
+    const lighter = sectionsOf(spec.category)
+      .map((c) => ({ name: c.name, mass: massOf(c.name) }))
+      .filter((c) => c.mass < massOf(spec.name) - 1e-6)
+      .sort((a, b) => b.mass - a.mass);
+    let tries = 0;
+    for (const c of lighter) {
+      if (tries >= TRIM_TRIES) break;
+      const sections = { ...cur.sections, [g]: { ...spec, name: c.name } };
+      const trial = { ...cur, sections };
+      if (stringerFitError(trial) || (webWidthWarning(trial) && !webWidthWarning(cur))) continue;
+      tries++;
+      progress(`Refining: ${groupLabel(g)} ${c.name}`);
+      const r = runAnalysis(trial);
+      if (failsChecks(r.results)) continue;
+      const mx = groupMax(r);
+      if ((Object.keys(mx) as GroupKey[]).some((k) => (mx[k] ?? 0) > Math.max(target, baseMax[k] ?? 0) + 1e-9)) continue;
+      log.push(`Refinement: ${groupLabel(g)} ${cur.sections[g].name} → ${c.name} (checked by analysis)`);
+      cur = trial;
+      base = r;
+      baseMax = mx;
+      tries = 0;
+    }
+  }
+  return cur;
+}
+
+/** Lighter sections tried in turn for each group in the final refinement. */
+const TRIM_TRIES = 2;
 
 /** Margin on the deflection and vibration estimates (they are scaled from the last analysis). */
 const SLS_MARGIN = 0.95;

@@ -44,7 +44,11 @@ export interface BucklingResult {
   modes: Float32Array[];
   /** Destabilising energy of each member in each mode, relative to the member with the most. */
   participation: Float32Array[];
-  /** The same, split by buckling plane: bending about the member's major axis and about its minor axis. */
+  /**
+   * The same, split by buckling plane (bending about the member's major axis and about its minor axis), and zero
+   * where the member restrains the mode in that plane rather than buckles in it: its own bending strain energy
+   * exceeds λ times its destabilising energy (it would be stable on its own at that load factor).
+   */
   participationMajor: Float32Array[];
   participationMinor: Float32Array[];
   converged: boolean;
@@ -184,6 +188,8 @@ export interface AnalysisResults {
 }
 
 const PARTICIPATION_FLOOR = 1e-12;
+/** Margin on U ≤ λ G for a member to count as buckling (not restraining) in a mode. */
+const RESTRAINED = 1.05;
 
 export function runAnalysis(input: BridgeInput, progress: (msg: string) => void = () => {}): { model: BridgeModel; results: AnalysisResults } {
   const t0 = performance.now();
@@ -270,17 +276,25 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const Kmul = (x: Float64Array, y: Float64Array) => void solver.K0.multiply(x, y);
   // participation of a member in a mode: the work done by its compression through the mode shape (its share of
   // the destabilising energy), which identifies the members whose buckling the mode represents
-  const memberEnergy = (vec: Float64Array, N: Float64Array) => {
+  const memberEnergy = (vec: Float64Array, N: Float64Array, lambda: number) => {
     const full = solver.expand(vec);
     const en = new Float64Array(model.members.length);
     const enMajor = new Float64Array(model.members.length), enMinor = new Float64Array(model.members.length);
     model.members.forEach((m, i) => {
+      let gMi = 0, gMa = 0, uMi = 0, uMa = 0;
       for (const el of m.elements) {
         en[i] += Math.max(0, solver.elementGeometricEnergy(full, el, N[el]));
         const [mi, ma] = solver.elementGeometricEnergyAxes(full, el, N[el]);
-        enMinor[i] += Math.max(0, mi);
-        enMajor[i] += Math.max(0, ma);
+        const [si, sa] = solver.elementStrainEnergyAxes(full, el);
+        gMi += mi;
+        gMa += ma;
+        uMi += si;
+        uMa += sa;
       }
+      // a member buckles in a plane when it needs restraint there: U < λ G (with a margin for the restraint it gets
+      // from its neighbours being small); one that is stiffer than that restrains the mode
+      enMinor[i] = gMi > 0 && uMi <= RESTRAINED * lambda * gMi ? gMi : 0;
+      enMajor[i] = gMa > 0 && uMa <= RESTRAINED * lambda * gMa ? gMa : 0;
     });
     return { full, en, enMajor, enMinor };
   };
@@ -294,8 +308,8 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     start = r.vectors[0];
     const modes: Float32Array[] = [];
     const participation: Float32Array[] = [], participationMajor: Float32Array[] = [], participationMinor: Float32Array[] = [];
-    r.vectors.forEach((v) => {
-      const { full, en, enMajor, enMinor } = memberEnergy(v, Nb);
+    r.vectors.forEach((v, k) => {
+      const { full, en, enMajor, enMinor } = memberEnergy(v, Nb, r.values[k]);
       let mx = 0;
       for (let i = 0; i < full.length; i += 1) if (i % 6 < 3) mx = Math.max(mx, Math.abs(full[i]));
       modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
@@ -553,8 +567,11 @@ export function uFrameLength(model: BridgeModel): { le: number; delta: number; d
 }
 
 /**
- * Design checks of a member for every ULS combination. nomScale multiplies the elastic buckling load from the
- * buckling analysis (used by the section optimiser to estimate the effect of a change of section).
+ * Design checks of a member for every ULS combination. nomScale is the ratio of the second moments of area about the
+ * major and minor axes of a trial section to those analysed (the section optimiser estimates the effect of a change
+ * of section with it): the elastic buckling load from a mode in which the member buckles between its nodes
+ * (l_e ≤ 1.1 L) scales with I, and from one in which it buckles over several panels on elastic restraints (a top
+ * chord on its U-frames, l_e ∝ I^0.25) with √I.
  */
 export function designMember(
   model: BridgeModel,
@@ -564,7 +581,7 @@ export function designMember(
   axial: Float64Array[],
   buckling: BucklingResult[],
   input: BridgeInput,
-  nomScale = 1
+  nomScale: { major: number; minor: number } = { major: 1, minor: 1 }
 ): MemberDesign {
   const sp = m.sp;
   const set = input.design[m.group as GroupKey];
@@ -589,7 +606,7 @@ export function designMember(
       Mx = Math.max(Mx, Math.abs(sf[s * 6 + 4]));
       My = Math.max(My, Math.abs(sf[s * 6 + 5]));
     }
-    const compression = -Nmin > Nmax;
+    const compression = -Nmin > Nmax && -Nmin > 1e-3; // no axial force: checked as in tension (no amplification)
     const N = compression ? Nmin : Nmax;
 
     // compression capacity from the chosen effective length method
@@ -607,15 +624,21 @@ export function designMember(
           // the computed modes, its own pin-ended Euler load for its length between nodes (k = 1), or the lower bound
           // from the last mode computed (λ N*, the member's own factor being higher) where that is higher
           const thr = input.participation / 100, last = b.values.length - 1;
-          const axis = (part: Float32Array[], I: number) => {
+          const axis = (part: Float32Array[], I: number, scale: number) => {
             const k = b.values.findIndex((_, i) => part[i][m.id] >= thr);
-            if (k >= 0) return { k, Nom: b.values[k] * Math.abs(N) * nomScale, fb: null };
-            const bound = b.values[last] * Math.abs(N) * nomScale;
+            const at = (j: number) => {
+              const Nom0 = b.values[j] * Math.abs(N);
+              if (scale === 1) return Nom0;
+              const le0 = Math.PI * Math.sqrt((E_STEEL * (I / scale)) / (Nom0 * 1000)) / 1000;
+              return Nom0 * scale ** (le0 > 1.1 * L ? 0.5 : 1);
+            };
+            if (k >= 0) return { k, Nom: at(k), fb: null };
+            const bound = at(last);
             const euler = (Math.PI ** 2 * E_STEEL * I) / (L * 1000) ** 2 / 1000;
             return euler >= bound ? { k: -1, Nom: euler, fb: 'euler' as const } : { k: -1, Nom: bound, fb: 'bound' as const };
           };
-          const ma = axis(b.participationMajor, sp.Ix);
-          const mi = axis(b.participationMinor, sp.Iy);
+          const ma = axis(b.participationMajor, sp.Ix, nomScale.major);
+          const mi = axis(b.participationMinor, sp.Iy, nomScale.minor);
           NomMajor = ma.Nom;
           NomMinor = mi.Nom;
           modeMajor = ma.k >= 0 ? ma.k + 1 : null;

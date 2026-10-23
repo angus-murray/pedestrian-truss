@@ -19,6 +19,7 @@ import {
   type TrussType
 } from '../model/types';
 import { panelCount, type BridgeModel } from '../model/build';
+import type { OptimiseResult } from '../model/optimise';
 import { windPressure, type AnalysisResults } from '../model/analysis';
 import { FINISH } from './viewer/scene';
 
@@ -43,7 +44,7 @@ export const InputPanels: React.FC<{
   set: Set;
   model: BridgeModel;
   onOptimise: () => void;
-  optimiseLog: string[] | null;
+  optimiseLog: Pick<OptimiseResult, 'log' | 'governs'> | null;
   solving: boolean;
   /** Results for the current inputs (null when not solved or out of date). */
   results: AnalysisResults | null;
@@ -213,22 +214,40 @@ export const InputPanels: React.FC<{
             )
           )}
         <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
+        <NumberField
+          label="Optimiser Target Utilisation (%)"
+          value={input.optimiseTarget}
+          onChange={(v) => set('optimiseTarget', v)}
+          min={50}
+          max={100}
+          step={5}
+          title="The optimiser selects the lightest section of each group with a strength utilisation of at most this; deflection and vibration are kept within their limits"
+        />
         <button
           type="button"
           className="btn w-full"
           onClick={onOptimise}
           disabled={solving || model.errors.length > 0}
-          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most 90%, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails). The model is then solved."
+          title="Keeps the geometry, loads, section types and grades, and selects the lightest section of each group with a utilisation of at most the target, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails), with the verticals and diagonals no wider than the chords. Groups sized by deflection or vibration are then refined with full analyses. The model is then solved."
         >
           <Wand2 className="w-3.5 h-3.5" />
-          Optimise Sections (90% Target)
+          Optimise Sections ({input.optimiseTarget}% Target)
         </button>
         {optimiseLog && (
-          <Readout
-            label="Last Optimisation"
-            value={`${optimiseLog.filter((l) => l.includes('→')).length} changes`}
-            title={optimiseLog.join('\n')}
-          />
+          <>
+            <Readout
+              label="Last Optimisation"
+              value={`${optimiseLog.log.filter((l) => l.includes('→')).length} changes`}
+              title={optimiseLog.log.join('\n')}
+            />
+            <p className="text-[11px] text-slate-500 leading-snug">
+              Sizes set by:{' '}
+              {GROUPS.filter((g) => optimiseLog.governs[g])
+                .map((g) => `${GROUP_INFO[g].label} ${optimiseLog.governs[g]}`)
+                .join('; ')}
+              .
+            </p>
+          </>
         )}
       </section>
 

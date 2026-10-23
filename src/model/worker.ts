@@ -11,7 +11,7 @@ self.onmessage = (ev: MessageEvent<{ id: number; input: BridgeInput; kind?: 'sol
   const progress = (msg: string) => self.postMessage({ id, progress: msg });
   try {
     if (kind === 'optimise') {
-      const opt = optimiseSections(input, 0.9, 4, progress);
+      const opt = optimiseSections(input, input.optimiseTarget / 100, 4, progress);
       // final analysis with the selected sections
       const { results } = runAnalysis({ ...input, sections: opt.sections }, (m) => progress(`Final analysis: ${m}`));
       self.postMessage({ id, results, optimised: opt });
