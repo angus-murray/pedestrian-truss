@@ -44,6 +44,9 @@ export interface BucklingResult {
   modes: Float32Array[];
   /** Destabilising energy of each member in each mode, relative to the member with the most. */
   participation: Float32Array[];
+  /** The same, split by buckling plane: bending about the member's major axis and about its minor axis. */
+  participationMajor: Float32Array[];
+  participationMinor: Float32Array[];
   converged: boolean;
 }
 
@@ -82,8 +85,17 @@ export interface MemberDesign {
   leMethod: string;
   leMajor: number; // m
   leMinor: number;
-  mode: number | null; // buckling mode used
+  mode: number | null; // buckling mode used (governing axis)
   lambdaCr: number | null;
+  /** Buckling analysis method, each axis: the mode used, or null when no computed mode qualifies (fallback). */
+  modeMajor: number | null;
+  modeMinor: number | null;
+  /**
+   * Buckling analysis method, each axis with no qualifying mode among those computed: N_om from the last mode
+   * computed (a lower bound) or from the member's Euler load (k = 1, ends braced).
+   */
+  fallbackMajor: 'bound' | 'euler' | null;
+  fallbackMinor: 'bound' | 'euler' | null;
   delta: number;
   phiNt: number;
   phiMsx: number;
@@ -249,10 +261,16 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
   const memberEnergy = (vec: Float64Array, N: Float64Array) => {
     const full = solver.expand(vec);
     const en = new Float64Array(model.members.length);
+    const enMajor = new Float64Array(model.members.length), enMinor = new Float64Array(model.members.length);
     model.members.forEach((m, i) => {
-      for (const el of m.elements) en[i] += Math.max(0, solver.elementGeometricEnergy(full, el, N[el]));
+      for (const el of m.elements) {
+        en[i] += Math.max(0, solver.elementGeometricEnergy(full, el, N[el]));
+        const [mi, ma] = solver.elementGeometricEnergyAxes(full, el, N[el]);
+        enMinor[i] += Math.max(0, mi);
+        enMajor[i] += Math.max(0, ma);
+      }
     });
-    return { full, en };
+    return { full, en, enMajor, enMinor };
   };
   combos.forEach((c, ci) => {
     if (c.type !== 'ULS') return;
@@ -263,17 +281,19 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     const r = lanczos(solver.K, Kmul, (x, y) => void B.multiply(x, y), nModes, { start });
     start = r.vectors[0];
     const modes: Float32Array[] = [];
-    const participation: Float32Array[] = [];
+    const participation: Float32Array[] = [], participationMajor: Float32Array[] = [], participationMinor: Float32Array[] = [];
     r.vectors.forEach((v) => {
-      const { full, en } = memberEnergy(v, Nb);
+      const { full, en, enMajor, enMinor } = memberEnergy(v, Nb);
       let mx = 0;
       for (let i = 0; i < full.length; i += 1) if (i % 6 < 3) mx = Math.max(mx, Math.abs(full[i]));
       modes.push(Float32Array.from(full, (x) => x / (mx || 1)));
       const emax = Math.max(...en, PARTICIPATION_FLOOR);
       participation.push(Float32Array.from(en, (x) => x / emax));
+      participationMajor.push(Float32Array.from(enMajor, (x) => x / emax));
+      participationMinor.push(Float32Array.from(enMinor, (x) => x / emax));
     });
     if (!r.converged) warnings.push(`The buckling analysis for ${comboLabel(c)} did not fully converge.`);
-    buckling.push({ combo: ci, values: r.values, modes, participation, converged: r.converged });
+    buckling.push({ combo: ci, values: r.values, modes, participation, participationMajor, participationMinor, converged: r.converged });
   });
 
   // ---------------------------------------------------------- U-frame restraint forces (ULS)
@@ -550,21 +570,47 @@ export function designMember(
     // compression capacity from the chosen effective length method
     let comp: CompressionCapacity | null = null, compMajor: CompressionCapacity | null = null, compMinor: CompressionCapacity | null = null;
     let leMethod = '', leMajor = 0, leMinor = 0, mode: number | null = null, lambdaCr: number | null = null, NomMajor = Infinity, NomMinor = Infinity;
+    let modeMajor: number | null = null, modeMinor: number | null = null;
+    let fallbackMajor: MemberDesign['fallbackMajor'] = null, fallbackMinor: MemberDesign['fallbackMinor'] = null;
     const L = m.length;
     if (compression) {
       if (set.method === 'buckling') {
         const b = buckling.find((x) => x.combo === (c.base ?? ci));
         leMethod = 'Buckling Analysis';
         if (b && b.values.length) {
-          let k = b.values.findIndex((_, i) => b.participation[i][m.id] >= input.participation / 100);
-          if (k < 0) k = b.values.length - 1;
-          mode = k + 1;
-          lambdaCr = b.values[k];
-          const Nom = lambdaCr * Math.abs(N) * nomScale;
-          comp = compressionFromNom(sp, Nom, Math.min(rx, ry));
-          NomMajor = NomMinor = Nom;
-          leMajor = Math.PI * Math.sqrt((E_STEEL * sp.Ix) / (Nom * 1000)) / 1000;
-          leMinor = Math.PI * Math.sqrt((E_STEEL * sp.Iy) / (Nom * 1000)) / 1000;
+          // each axis takes N_om from the lowest mode in which the member buckles about that axis; with none among
+          // the computed modes, the member's own buckling factor exceeds that of the last mode computed (a lower
+          // bound), and where both its end nodes are braced in that direction its Euler load for its length between
+          // nodes (k = 1) is used if higher. Truss members are braced in plane by the triangulation; out of plane only
+          // the bottom chord is (by the plan bracing): the top chord nodes are held by the U-frames alone.
+          const thr = input.participation / 100, last = b.values.length - 1;
+          const inTruss = m.group === 'topChord' || m.group === 'bottomChord' || m.group === 'endPost' || m.group === 'vertical' || m.group === 'diagonal';
+          const majorOut = Math.abs(m.depthDir[1]) > 0.7; // major-axis bending deflects the member transversely
+          const outBraced = !inTruss || (m.group === 'bottomChord' && input.bracing !== 'none');
+          const axis = (part: Float32Array[], I: number, braced: boolean) => {
+            const k = b.values.findIndex((_, i) => part[i][m.id] >= thr);
+            if (k >= 0) return { k, Nom: b.values[k] * Math.abs(N) * nomScale, fb: null };
+            const bound = b.values[last] * Math.abs(N) * nomScale;
+            const euler = (Math.PI ** 2 * E_STEEL * I) / (L * 1000) ** 2 / 1000;
+            return braced && euler > bound ? { k: -1, Nom: euler, fb: 'euler' as const } : { k: -1, Nom: bound, fb: 'bound' as const };
+          };
+          const ma = axis(b.participationMajor, sp.Ix, majorOut ? outBraced : true);
+          const mi = axis(b.participationMinor, sp.Iy, majorOut ? true : outBraced);
+          NomMajor = ma.Nom;
+          NomMinor = mi.Nom;
+          modeMajor = ma.k >= 0 ? ma.k + 1 : null;
+          modeMinor = mi.k >= 0 ? mi.k + 1 : null;
+          fallbackMajor = ma.fb;
+          fallbackMinor = mi.fb;
+          compMajor = compressionFromNom(sp, NomMajor, rx);
+          compMinor = compressionFromNom(sp, NomMinor, ry);
+          const minorGov = compMinor.phiNc <= compMajor.phiNc;
+          comp = minorGov ? compMinor : compMajor;
+          const kg = minorGov ? mi.k : ma.k;
+          mode = kg >= 0 ? kg + 1 : null;
+          lambdaCr = kg >= 0 ? b.values[kg] : null;
+          leMajor = compMajor.le;
+          leMinor = compMinor.le;
         }
       } else {
         const lat = m.group === 'topChord' && uf;
@@ -645,6 +691,10 @@ export function designMember(
         leMinor,
         mode,
         lambdaCr,
+        modeMajor,
+        modeMinor,
+        fallbackMajor,
+        fallbackMinor,
         delta: Math.max(deltaX, deltaY),
         phiNt,
         phiMsx,
@@ -658,7 +708,7 @@ export function designMember(
   if (!best)
     best = {
       member: m.id, util: 0, utilRaw: 0, combo: -1, governing: '—', N: 0, Mx: 0, My: 0, Vy: 0, Vx: 0, comp: null, compMajor: null, compMinor: null,
-      leMethod: '', leMajor: 0, leMinor: 0, mode: null, lambdaCr: null, delta: 1, phiNt, phiMsx, phiMsy, phiMbx: phiMsx, alphaM: 1, items: [], byCombo
+      leMethod: '', leMajor: 0, leMinor: 0, mode: null, lambdaCr: null, modeMajor: null, modeMinor: null, fallbackMajor: null, fallbackMinor: null, delta: 1, phiNt, phiMsx, phiMsy, phiMbx: phiMsx, alphaM: 1, items: [], byCombo
     };
   (best as MemberDesign).byCombo = byCombo;
   (best as MemberDesign).utilRaw = utilRaw;

@@ -483,6 +483,29 @@ export class FrameSolver {
     return -s / 2;
   }
 
+  /**
+   * Destabilising energy of an element split by buckling plane: [minor axis (local v, about z), major axis
+   * (local w, about y)]. The planes are uncoupled in the geometric stiffness (and in the condensation of releases).
+   */
+  elementGeometricEnergyAxes(disp: Float64Array, el: number, N: number): [number, number] {
+    if (!N) return [0, 0];
+    const ed = this.els[el], e = this.model.elements[el];
+    const ug = new Float64Array(12);
+    for (let d = 0; d < 6; d++) {
+      ug[d] = disp[e.i * 6 + d];
+      ug[6 + d] = disp[e.j * 6 + d];
+    }
+    const ul = toLocalVec(ug, ed.R);
+    let kg = localGeometric(e, ed.L, N);
+    if (ed.T) kg = congruence(kg, ed.T);
+    const plane = (dofs: number[]) => {
+      let s = 0;
+      for (const i of dofs) for (const m of dofs) s += ul[i] * kg[i * 12 + m] * ul[m];
+      return -s / 2;
+    };
+    return [plane([1, 5, 7, 11]), plane([2, 4, 8, 10])];
+  }
+
   elementLength(el: number) {
     return this.els[el].L;
   }

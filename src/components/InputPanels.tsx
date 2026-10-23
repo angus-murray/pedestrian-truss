@@ -554,7 +554,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
       </table>
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Buckling Modes" value={input.bucklingModes} onChange={(v) => set('bucklingModes', Math.round(v))} min={1} max={20} step={1} title="Number of buckling modes computed for each ULS combination" />
-        <NumberField label="Participation (%)" value={input.participation} onChange={(v) => set('participation', v)} min={1} max={100} step={1} title="A member takes its buckling load from the lowest mode in which its strain energy is at least this share of that of the most strained member" />
+        <NumberField label="Participation (%)" value={input.participation} onChange={(v) => set('participation', v)} min={1} max={100} step={1} title="About each axis, a member takes its buckling load from the lowest mode in which its destabilising energy from bending about that axis is at least this share of that of the member with the most" />
       </div>
       <NumberField
         label="U-Frame Joint Flexibility f (mrad/kNm)"

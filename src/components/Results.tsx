@@ -216,9 +216,20 @@ const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: Member
                 <Cols w={[55, 45]} />
                 <tbody>
                   <KV k="Effective Length Method" v={d.leMethod} />
-                  {d.mode !== null && <KV k="Buckling Mode Used" v={`Mode ${d.mode}, λ = ${d.lambdaCr!.toFixed(3)}`} />}
+                  {d.leMethod === 'Buckling Analysis' && (
+                    <KV
+                      k="Buckling Mode Major / Minor"
+                      v={([[d.modeMajor, d.fallbackMajor], [d.modeMinor, d.fallbackMinor]] as const)
+                        .map(([k, fb]) => (k !== null ? `Mode ${k}` : fb === 'euler' ? 'Euler (k = 1)' : `Above Mode ${r.buckling.find((x) => x.combo === (r.combos[d.combo].base ?? d.combo))?.values.length ?? ''}`))
+                        .join(' / ')}
+                    />
+                  )}
                   {uf && <KV k="U-Frame Flexibility δ" v={`${(uf.delta * 1000).toFixed(3)} mm/kN (d₁ = ${uf.d1.toFixed(3)} m, d₂ = ${uf.d2.toFixed(3)} m${uf.Ld ? `, L_d = ${uf.Ld.toFixed(3)} m` : ''})`} />}
-                  <KV k={<>Elastic Buckling Load <S s="N" sub="om" /></>} v={`${f0(comp.Nom)} kN`} />
+                  {d.compMajor && d.compMinor ? (
+                    <KV k={<>Elastic Buckling Load <S s="N" sub="om" /> Major / Minor</>} v={`${f0(d.compMajor.Nom)} / ${f0(d.compMinor.Nom)} kN`} />
+                  ) : (
+                    <KV k={<>Elastic Buckling Load <S s="N" sub="om" /></>} v={`${f0(comp.Nom)} kN`} />
+                  )}
                   <KV k={<><S s="l" sub="e" /> Major / Minor</>} v={`${d.leMajor.toFixed(2)} / ${d.leMinor.toFixed(2)} m (${(d.leMajor / m.length).toFixed(2)}L / ${(d.leMinor / m.length).toFixed(2)}L)`} />
                   <KV k={<><S s="l" sub="e" />/<S s="r" />, <S s="λ" sub="n" /></>} v={`${f1(comp.slenderness)}, ${f1(comp.lambdaN)}`} />
                   <KV k={<><S s="α" sub="c" /></>} v={comp.alphaC.toFixed(3)} />

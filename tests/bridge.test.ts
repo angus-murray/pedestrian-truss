@@ -94,3 +94,18 @@ test('default ULS combinations: pedestrian 1.5 (Table 8.3), barrier 1.8 with SLS
   assert.equal(bar.b, 1.8);
   assert.equal(bar.q, 1.0);
 });
+
+test('buckling analysis method: N_om for each axis, top chord in-plane from its Euler load (k = 1)', () => {
+  const tc = results.design.filter((d) => model.members[d.member].group === 'topChord' && d.comp).reduce((a, d) => (d.util > a.util ? d : a));
+  const m = model.members[tc.member];
+  // the top chord buckles laterally (minor axis) in mode 1; in plane its nodes are braced by the triangulation
+  assert.equal(tc.modeMinor, 1);
+  assert.equal(tc.fallbackMajor, 'euler');
+  const euler = (Math.PI ** 2 * 200000 * m.sp.Ix) / (m.length * 1000) ** 2 / 1000;
+  assert.ok(Math.abs(tc.compMajor!.Nom / euler - 1) < 1e-6);
+  assert.ok(tc.compMinor!.Nom < tc.compMajor!.Nom);
+  assert.equal(tc.comp, tc.compMinor);
+  // the end posts are held out of plane only by the end U-frames: the lower bound from the last mode, never Euler
+  const ep = results.design.find((d) => model.members[d.member].group === 'endPost' && d.comp && d.modeMajor === null);
+  if (ep) assert.equal(ep.fallbackMajor, 'bound');
+});

@@ -76,8 +76,11 @@ export const AboutPage: React.FC = () => (
       <Bullets
         items={[
           <>
-            <b>Buckling analysis</b> (AS 5100.6 Cl. 4.6 elastic buckling analysis). The member elastic buckling load is <S s="N" /><sub>om</sub> = <S s="λ" /><sub>c</sub> <S s="N" />* from the lowest buckling mode of that combination in which the member takes part,
-            that is, in which its elastic strain energy is at least the participation threshold times that of the most strained member. If no computed mode qualifies, the highest computed mode is used (conservative). The slenderness follows from the first formula below.
+            <b>Buckling analysis</b> (AS 5100.6 Cl. 4.6 elastic buckling analysis). For each axis, the member elastic buckling load is <S s="N" /><sub>om</sub> = <S s="λ" /><sub>c</sub> <S s="N" />* from the lowest buckling mode of that combination in which the member buckles about that axis,
+            that is, in which its destabilising energy from bending about that axis is at least the participation threshold times the total of the member with the most. The major-axis value amplifies the major-axis moments and the minor-axis value the minor-axis moments; the lower compression capacity governs.
+            If no computed mode qualifies for an axis, the member's own buckling factor exceeds that of the highest mode computed, and <S s="λ" /><sub>c</sub> <S s="N" />* for that mode is a lower bound on <S s="N" /><sub>om</sub>. Where both end nodes are braced in that direction, the member's Euler load for its length between nodes (<S s="k" /> = 1) is used if higher:
+            in plane for the truss members (braced by the triangulation), out of plane for the bottom chords with plan bracing, and about both axes for the cross girders, stringers and bracing. Out of plane, the top chord, end posts, verticals and diagonals keep the lower bound, as their top nodes are held only by the U-frames; more modes raise it.
+            The slenderness follows from the first formula below.
           </>,
           <>
             <b>Factor × length</b>: <S s="l" /><sub>e</sub> = <S s="k" /> <S s="L" /> about each axis, with <S s="L" /> the member length between nodes.
@@ -88,7 +91,7 @@ export const AboutPage: React.FC = () => (
         ]}
       />
       <Formula>
-        <S s="l" /><sub>e</sub>/<S s="r" /> = π √(<S s="E A" /><sub>g</sub> / <S s="N" /><sub>om</sub>)  (buckling analysis, independent of the axis)
+        <S s="l" /><sub>e</sub>/<S s="r" /> = π √(<S s="E A" /><sub>g</sub> / <S s="N" /><sub>om</sub>)  (buckling analysis, each axis)
       </Formula>
       <Formula>
         <S s="δ" /> = <S s="d" /><sub>1</sub><sup>3</sup> / (3<S s="E I" /><sub>1</sub>) + <S s="s d" /><sub>2</sub><sup>2</sup> / (2<S s="E I" /><sub>2</sub>) + <S s="f d" /><sub>2</sub><sup>2</sup>   (Warren: <S s="L" /><sub>d</sub><sup>3</sup> / (6<S s="E I" /><sub>1</sub>) + <S s="s d" /><sub>2</sub><sup>2</sup> / (4<S s="E I" /><sub>2</sub>) + <S s="f d" /><sub>2</sub><sup>2</sup>/2),   <S s="l" /><sub>e</sub> = 2.5 (<S s="E I" /><sub>c</sub> <S s="a δ" />)<sup>0.25</sup> ≥ <S s="a" />
