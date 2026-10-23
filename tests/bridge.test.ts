@@ -75,3 +75,13 @@ test('stringers outside the cross girders are an input error, not a mechanism', 
   assert.ok(r.errors[0].includes('outside the cross girders'));
   assert.equal(buildModel({ ...DEFAULT_INPUT, stringerCount: 5, stringerSpacing: 0.7 }).errors.length, 0);
 });
+
+test('horizontal deflection under SLS wind: midspan average of the top and bottom chords', () => {
+  const ci = results.combos.findIndex((c) => c.type === 'SLS' && c.factors.W !== 0);
+  const h = results.sls.find((s) => s.combo === ci)!.horizontal!;
+  assert.ok(h.top > 0 && h.bottom > 0);
+  assert.ok(Math.abs(h.value - (h.top + h.bottom) / 2) < 1e-12);
+  assert.equal(h.limit, DEFAULT_INPUT.span / DEFAULT_INPUT.latDeflLimit);
+  // only combinations with wind are checked
+  assert.ok(results.sls.filter((s) => results.combos[s.combo].factors.W === 0).every((s) => s.horizontal === null));
+});

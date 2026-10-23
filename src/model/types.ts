@@ -85,7 +85,8 @@ export interface BridgeInput {
   bucklingModes: number;
   elementsPerMember: number;
   participation: number; // %
-  deflLimit: number; // span / x
+  deflLimit: number; // span / x, vertical (pedestrian)
+  latDeflLimit: number; // span / x, horizontal under SLS wind
   vibDecrement: number; // logarithmic decrement δ (AS 5100.2 Table 13.4.2)
   freqLatMin: number; // Hz
   modalQ: number; // % of pedestrian load as mass
@@ -188,6 +189,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   elementsPerMember: 4,
   participation: 10,
   deflLimit: 600,
+  latDeflLimit: 600,
   vibDecrement: 0.03,
   freqLatMin: 1.5,
   modalQ: 0

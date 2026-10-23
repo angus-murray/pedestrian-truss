@@ -99,6 +99,11 @@ export interface SlsResult {
   limit: number | null; // m
   /** Stringers: largest deflection relative to the cross girders (the chord between the span ends), limit a / x. */
   stringer: { maxRel: number; member: number; limit: number } | null;
+  /**
+   * Horizontal deflection under wind (SLS combinations with wind): at midspan, the average of the top and bottom
+   * chord lateral displacements of each truss (the larger truss governs), against span / limit.
+   */
+  horizontal: { top: number; bottom: number; value: number; side: 'A' | 'B'; limit: number } | null;
 }
 
 /** Vertical vibration check, AS 5100.2 Cl. 13.4. */
@@ -374,7 +379,15 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
       }
       maxLat = Math.max(maxLat, Math.abs(u[nd * 6 + 1]));
     }
-    sls.push({ combo: ci, maxVert, maxLat, node: nodeAt, limit: c.deflection ? input.span / input.deflLimit : null, stringer });
+    let horizontal: SlsResult['horizontal'] = null;
+    if (c.factors.W !== 0)
+      for (const side of ['A', 'B'] as const) {
+        const top = Math.abs(lateralAt(model, u, 'topChord', side, input.span / 2));
+        const bottom = Math.abs(lateralAt(model, u, 'bottomChord', side, input.span / 2));
+        const value = (top + bottom) / 2;
+        if (!horizontal || value > horizontal.value) horizontal = { top, bottom, value, side, limit: input.span / input.latDeflLimit };
+      }
+    sls.push({ combo: ci, maxVert, maxLat, node: nodeAt, limit: c.deflection ? input.span / input.deflLimit : null, stringer, horizontal });
   });
 
   for (const b of buckling) {
@@ -387,6 +400,20 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     model,
     results: { combos, disp, forces, caseDisp, buckling, modal, design, sls, vibration, errors, warnings, dofs: solver.nEq, timeMs: performance.now() - t0 }
   };
+}
+
+/** Lateral (Y) displacement of a chord of one truss at position x along the span, linear between its nodes. */
+function lateralAt(model: BridgeModel, u: Float32Array, group: 'topChord' | 'bottomChord', side: 'A' | 'B', x: number): number {
+  const nodes = model.fe.nodes;
+  const pts: { x: number; uy: number }[] = [];
+  for (const m of model.members) if (m.group === group && m.side === side) for (const nd of m.nodes) pts.push({ x: nodes[nd].x, uy: u[nd * 6 + 1] });
+  pts.sort((p, q) => p.x - q.x);
+  for (let i = 0; i < pts.length - 1; i++)
+    if (x >= pts[i].x - 1e-9 && x <= pts[i + 1].x + 1e-9) {
+      const t = (x - pts[i].x) / (pts[i + 1].x - pts[i].x || 1);
+      return pts[i].uy * (1 - t) + pts[i + 1].uy * t;
+    }
+  return 0;
 }
 
 /** Value of station data (component d) at fraction f along the member, linear between stations. */

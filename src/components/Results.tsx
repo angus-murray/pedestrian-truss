@@ -29,7 +29,12 @@ export interface Summary {
 export function summarise(model: BridgeModel, r: AnalysisResults, input: BridgeInput): Summary {
   const maxUtil = r.design.reduce((m, d) => Math.max(m, d.util), 0);
   const failing = r.design.filter((d) => d.util > 1 + 1e-9).sort((a, b) => b.util - a.util).map((d) => ({ name: model.members[d.member].name, util: d.util }));
-  const deflOk = r.sls.every((s) => (s.limit === null || s.maxVert <= s.limit + 1e-9) && (!s.stringer || s.stringer.maxRel <= s.stringer.limit + 1e-9));
+  const deflOk = r.sls.every(
+    (s) =>
+      (s.limit === null || s.maxVert <= s.limit + 1e-9) &&
+      (!s.stringer || s.stringer.maxRel <= s.stringer.limit + 1e-9) &&
+      (!s.horizontal || s.horizontal.value <= s.horizontal.limit + 1e-9)
+  );
   const lambdaMin = r.buckling.reduce<number | null>((m, b) => (b.values.length ? Math.min(m ?? Infinity, b.values[0]) : m), null);
   const v = r.vibration;
   const fv = v?.f0 ?? null, fl = v?.fLat ?? null;
@@ -302,7 +307,45 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
             ))}
           </tbody>
         </table>
-        <p className="text-[11px] text-slate-500 mt-1">Deflection limit span / {input.deflLimit}, excluding the stringers. The dead load deflection indicates the precamber.</p>
+        <p className="text-[11px] text-slate-500 mt-1">Vertical deflection of the trusses, limit span / {input.deflLimit}. The dead load deflection indicates the precamber.</p>
+        {r.sls.some((s) => s.horizontal) && (
+          <>
+            <h3 className="card-title mt-2 mb-1">Horizontal Deflection (Wind)</h3>
+            <table className="rtable">
+              <Cols w={[34, 14, 14, 14, 12, 12]} />
+              <thead>
+                <tr>
+                  <th>Combination</th>
+                  <th>Top Chord (mm)</th>
+                  <th>Bottom Chord (mm)</th>
+                  <th>Average (mm)</th>
+                  <th>Limit (mm)</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.sls
+                  .filter((s) => s.horizontal)
+                  .map((s) => {
+                    const h = s.horizontal!;
+                    return (
+                      <tr key={s.combo}>
+                        <td className="!text-left">{comboLabel(r.combos[s.combo])}</td>
+                        <td>{f1(h.top * 1000)}</td>
+                        <td>{f1(h.bottom * 1000)}</td>
+                        <td>{f1(h.value * 1000)}</td>
+                        <td>{f1(h.limit * 1000)}</td>
+                        <td>
+                          <PassFail pass={h.value <= h.limit + 1e-9} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+            <p className="text-[11px] text-slate-500 mt-1">At midspan, the average of the top and bottom chord displacements of each truss (the truss twists under wind); the larger truss is shown. Limit span / {input.latDeflLimit}.</p>
+          </>
+        )}
         {r.sls.some((s) => s.stringer) && (
           <>
             <h3 className="card-title mt-2 mb-1">Stringer Deflection (Relative to Cross Girders)</h3>

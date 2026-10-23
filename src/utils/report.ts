@@ -293,7 +293,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
   doc.text(pct(sum.maxUtil), M + CW - 4, y + 13.5, { align: 'right' });
   y += 22;
   if (sum.failing.length) paragraph(`Members over 100%: ${sum.failing.map((f) => `${f.name} (${pct(f.util)})`).join(', ')}.`, 8.5, INK);
-  if (!sum.deflOk) paragraph('The vertical deflection exceeds the limit.', 8.5, INK);
+  if (!sum.deflOk) paragraph('A deflection exceeds its limit (vertical, horizontal or stringer).', 8.5, INK);
   if (!sum.vibOk) paragraph('The vertical acceleration under a pedestrian exceeds the AS 5100.2 Cl. 13.4 limit.', 8.5, INK);
   r.errors.forEach((e) => paragraph(e, 8.5, INK));
   [...r.warnings, ...sum.dynWarnings].forEach((w) => paragraph(`•  ${w}`));
@@ -429,7 +429,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
 
   // ---------- Serviceability ----------
   heading(`${sec++}   Serviceability`);
-  subheading('Deflection', `Limit span / ${input.deflLimit}`);
+  subheading('Vertical deflection of the trusses', `Limit span / ${input.deflLimit}`);
   table(
     [46, 18, 18, 18],
     [
@@ -437,6 +437,21 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
       ...r.sls.map((s) => ({ cells: [comboLabel(r.combos[s.combo]), f1(s.maxVert * 1000), f1(s.maxLat * 1000), s.limit !== null ? `${f1(s.limit * 1000)} ${passFail(s.maxVert <= s.limit + 1e-9)}` : '—'] }))
     ]
   );
+  if (r.sls.some((s) => s.horizontal)) {
+    subheading('Horizontal deflection under wind (midspan, average of top and bottom chords)', `Limit span / ${input.latDeflLimit}`);
+    table(
+      [40, 15, 15, 15, 15],
+      [
+        { cells: ['Combination', 'Top chord (mm)', 'Bottom chord (mm)', 'Average (mm)', 'Limit (mm)'], kind: 'head' },
+        ...r.sls
+          .filter((s) => s.horizontal)
+          .map((s) => {
+            const h = s.horizontal!;
+            return { cells: [comboLabel(r.combos[s.combo]), f1(h.top * 1000), f1(h.bottom * 1000), f1(h.value * 1000), `${f1(h.limit * 1000)} ${passFail(h.value <= h.limit + 1e-9)}`] };
+          })
+      ]
+    );
+  }
   if (r.sls.some((s) => s.stringer)) {
     subheading('Stringer deflection relative to the cross girders', `Limit panel length / ${input.deflLimit}`);
     table(

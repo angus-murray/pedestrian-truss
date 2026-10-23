@@ -47,6 +47,9 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
     // deflection: chord area needed for the deflection limit (deflection taken as inversely proportional to it)
     const defl = results.sls.filter((x) => x.limit !== null).reduce((r, x) => Math.max(r, x.maxVert / (x.limit as number)), 0);
     // stringer deflection relative to the cross girders, as a ratio to its limit (inversely proportional to I_x)
+    // horizontal deflection under wind: the bottom chords and plan bracing form the horizontal truss, so taken as
+    // inversely proportional to the bottom chord area
+    const horizDefl = results.sls.reduce((r, x) => (x.horizontal ? Math.max(r, x.horizontal.value / x.horizontal.limit) : r), 0);
     const stringerDefl = results.sls.reduce((r, x) => (x.stringer ? Math.max(r, x.stringer.maxRel / x.stringer.limit) : r), 0);
     // vertical vibration: truss bending stiffness ∝ A_t A_b / (A_t + A_b) from the chords, f0 ∝ √(k / M) and,
     // as f0² y is independent of the stiffness, a ∝ 1 / M; the check is needed only below 5 Hz
@@ -90,6 +93,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
             if (f < 5) u = Math.max(u, ((vib.a * mr) / (0.25 * f ** 0.78) / SLS_MARGIN) * target);
           }
         }
+        if (g === 'bottomChord' && horizDefl > 0) u = Math.max(u, ((horizDefl * old.A) / sp.A / SLS_MARGIN) * target);
         if (g === 'stringer' && stringerDefl > 0) u = Math.max(u, ((stringerDefl * old.Ix) / sp.Ix / SLS_MARGIN) * target);
         if (u <= target) {
           pick = c.name;
@@ -137,7 +141,7 @@ const SLS_MARGIN = 0.95;
 function failsChecks(r: ReturnType<typeof runAnalysis>['results']): boolean {
   if (r.errors.length) return true;
   if (r.design.some((d) => d.util > 1)) return true;
-  if (r.sls.some((x) => (x.limit !== null && x.maxVert > x.limit) || (x.stringer && x.stringer.maxRel > x.stringer.limit))) return true;
+  if (r.sls.some((x) => (x.limit !== null && x.maxVert > x.limit) || (x.stringer && x.stringer.maxRel > x.stringer.limit) || (x.horizontal && x.horizontal.value > x.horizontal.limit))) return true;
   return !!r.vibration && !r.vibration.ok;
 }
 
