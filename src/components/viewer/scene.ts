@@ -17,6 +17,8 @@ export const FINISH: Record<Finish, { colour: string; metalness: number; roughne
 export interface BridgeObjects {
   root: THREE.Group;
   members: Map<number, THREE.Mesh>;
+  /** Steel details that are not members (cross girder end plates, bracing gussets): ghosted with the members. */
+  details: THREE.Mesh[];
   furniture: THREE.Group; // deck, kerbs, handrails, screens
   context: THREE.Group; // bearings, abutments, ground
   steel: THREE.MeshStandardMaterial;
@@ -49,6 +51,7 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   const context = new THREE.Group();
   root.add(membersGroup, furniture, context);
   const members = new Map<number, THREE.Mesh>();
+  const details: THREE.Mesh[] = [];
   const add = (grp: THREE.Group, g: THREE.BufferGeometry, mat: THREE.Material, shadow = true) => {
     keep(g);
     const mesh = new THREE.Mesh(g, mat);
@@ -90,7 +93,7 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     for (let k = 0; k <= geo.n; k++)
       for (const sg of [-1, 1]) {
         const y = sg * yPlate;
-        add(membersGroup, boxBetween(k * geo.a - cgW / 2 - 0.01, k * geo.a + cgW / 2 + 0.01, y - sg * 0.016, y, geo.zCG - geo.dCG / 2 - 0.01, geo.cgTop), steel);
+        details.push(add(membersGroup, boxBetween(k * geo.a - cgW / 2 - 0.01, k * geo.a + cgW / 2 + 0.01, y - sg * 0.016, y, geo.zCG - geo.dCG / 2 - 0.01, geo.cgTop), steel));
       }
 
   // plan bracing gussets under the cross girder ends, on top of the bracing
@@ -99,7 +102,7 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     for (let k = 0; k <= geo.n; k++)
       for (const sg of [-1, 1]) {
         const y0 = sg * (geo.s / 2 + geo.wBC / 2), y1 = sg * (geo.s / 2 - geo.wBC / 2 - 0.35);
-        add(membersGroup, boxBetween(k * geo.a - (k === 0 ? 0.1 : 0.4), k * geo.a + (k === geo.n ? 0.1 : 0.4), Math.min(y0, y1), Math.max(y0, y1), zt - GUSSET_T, zt), steel);
+        details.push(add(membersGroup, boxBetween(k * geo.a - (k === 0 ? 0.1 : 0.4), k * geo.a + (k === geo.n ? 0.1 : 0.4), Math.min(y0, y1), Math.max(y0, y1), zt - GUSSET_T, zt), steel));
       }
   }
 
@@ -269,6 +272,7 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
   return {
     root,
     members,
+    details,
     furniture,
     context,
     steel,

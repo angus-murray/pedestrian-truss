@@ -126,10 +126,11 @@ export interface VibrationResult {
 
 /**
  * Dynamic response factor Ψ (AS 5100.2 Figure 13.4.2), as quadratic fits to the curves for δ = 0.03, 0.04 and
- * 0.05 (linear between them), for spans of 10 to 50 m (the span is limited to that range).
+ * 0.05 (linear between them), for spans up to 50 m (the largest span the app accepts); below 10 m the fits are
+ * extrapolated.
  */
 export function dynamicResponseFactor(span: number, delta: number): number {
-  const L = Math.min(50, Math.max(10, span));
+  const L = Math.min(50, Math.max(0, span));
   const fit: [number, number, number, number][] = [
     [0.03, 0.991, 0.432, -0.00294],
     [0.04, 1.445, 0.367, -0.00265],
@@ -391,7 +392,7 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     latOk: fLat === null || fLat >= input.freqLatMin
   };
   if (f0 === null) warnings.push('No vertical mode was found among the computed natural frequencies; the vertical vibration check could not be made.');
-  if (input.span < 10 || input.span > 50) warnings.push('The dynamic response factor Ψ (AS 5100.2 Figure 13.4.2) is defined for spans of 10 to 50 m; the nearest value is used.');
+  if (input.span < 10) warnings.push(`The dynamic response factor Ψ (AS 5100.2 Figure 13.4.2) is extrapolated below the 10 m span of the figure (Ψ = ${psi.toFixed(2)} at ${input.span} m).`);
 
   // ---------------------------------------------------------- member design
   progress('Member design checks');

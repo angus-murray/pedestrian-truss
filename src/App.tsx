@@ -25,7 +25,9 @@ function withDefaults(x: Partial<BridgeInput>): BridgeInput {
     ...x,
     sections: { ...DEFAULT_INPUT.sections, ...(x.sections ?? {}) },
     design: { ...DEFAULT_INPUT.design, ...(x.design ?? {}) },
-    combos: x.combos?.length ? x.combos.map(updateCombo) : DEFAULT_INPUT.combos
+    combos: x.combos?.length ? x.combos.map(updateCombo) : DEFAULT_INPUT.combos,
+    // spans are limited to 50 m (the range of the vibration dynamic response factor)
+    span: Math.min(50, x.span ?? DEFAULT_INPUT.span)
   };
 }
 

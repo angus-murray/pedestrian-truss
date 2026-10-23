@@ -277,6 +277,14 @@ export const Viewer3D: React.FC<{
       mesh.material = mat;
       mesh.castShadow = !ghost;
     });
+    // end plates and gussets follow the members: ghosted (and without shadows) in the deformed-shape views
+    const detailGhost = ghost ? new THREE.MeshStandardMaterial({ color: '#94a3b8', transparent: true, opacity: 0.18, depthWrite: false }) : null;
+    b.details.forEach((d) => {
+      const old = d.material as THREE.Material;
+      if (old !== b.steel) old.dispose();
+      d.material = detailGhost ?? b.steel;
+      d.castShadow = !ghost;
+    });
 
     if (!res || !ghost) return;
     const nodes = model.fe.nodes;

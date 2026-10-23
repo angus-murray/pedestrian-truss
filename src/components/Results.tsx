@@ -139,7 +139,7 @@ const GoverningTable: React.FC<{ model: BridgeModel; r: AnalysisResults; onSelec
       <h3 className="card-title mb-1">Governing Member of Each Group (ULS)</h3>
       <div className="overflow-x-auto">
         <table className="rtable min-w-[760px]">
-          <Cols w={[13, 7, 14, 17, 21, 8, 8, 12]} />
+          <Cols w={[11, 7, 15, 17, 17, 10, 10, 13]} />
           <thead>
             <tr>
               <th>Group</th>
@@ -261,7 +261,7 @@ const MemberDetail: React.FC<{ model: BridgeModel; r: AnalysisResults; d: Member
           </p>
           <h3 className="card-title">Utilisation by Combination</h3>
           <table className="rtable">
-            <Cols w={[75, 25]} />
+            <Cols w={[70, 30]} />
             <tbody>
               {d.byCombo.map((u, ci) =>
                 u === undefined ? null : (
@@ -297,7 +297,7 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
       <div>
         <h3 className="card-title mb-1">Deflection</h3>
         <table className="rtable">
-          <Cols w={[40, 18, 16, 14, 12]} />
+          <Cols w={[30, 19, 18, 18, 15]} />
           <thead>
             <tr>
               <th>Combination</th>
@@ -324,7 +324,7 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
           <>
             <h3 className="card-title mt-2 mb-1">Horizontal Deflection (Wind)</h3>
             <table className="rtable">
-              <Cols w={[34, 14, 14, 14, 12, 12]} />
+              <Cols w={[26, 15, 15, 15, 15, 14]} />
               <thead>
                 <tr>
                   <th>Combination</th>
@@ -362,7 +362,7 @@ const ServiceabilityPanel: React.FC<{ model: BridgeModel; r: AnalysisResults; in
           <>
             <h3 className="card-title mt-2 mb-1">Stringer Deflection (Relative to Cross Girders)</h3>
             <table className="rtable">
-              <Cols w={[40, 18, 16, 14, 12]} />
+              <Cols w={[30, 19, 18, 18, 15]} />
               <thead>
                 <tr>
                   <th>Combination</th>
@@ -494,7 +494,7 @@ const BucklingPanel: React.FC<{ model: BridgeModel; r: AnalysisResults }> = ({ m
       </div>
       <div className="overflow-x-auto">
         <table className="rtable min-w-[640px]">
-          <Cols w={[34, ...Array(nCols).fill(36 / nCols), 30]} />
+          <Cols w={[28, ...Array(nCols).fill(46 / nCols), 26]} />
           <thead>
             <tr>
               <th>Combination</th>

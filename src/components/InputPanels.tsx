@@ -58,7 +58,7 @@ export const InputPanels: React.FC<{
           Geometry
         </h2>
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label={<>Span <S s="L" /> (m)</>} value={input.span} onChange={(v) => set('span', v)} min={6} max={80} step={0.5} title="Centre to centre of bearings" />
+          <NumberField label={<>Span <S s="L" /> (m)</>} value={input.span} onChange={(v) => set('span', v)} min={6} max={50} step={0.5} title="Centre to centre of bearings" />
           <NumberField label={<>Truss Depth <S s="h" /> (m)</>} value={input.depth} onChange={(v) => set('depth', v)} min={0.6} max={4} step={0.05} decimals={2} title="Centroid of the bottom chord to centroid of the top chord" />
         </div>
         <div>
