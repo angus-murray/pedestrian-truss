@@ -8,6 +8,7 @@
  * panel point (forming U-frames with the verticals), plan bracing at cross girder level. Each member is divided
  * into several beam elements so that member buckling is captured by the buckling analysis.
  */
+import { isSymmetric } from '../data/sections';
 import { sectionProps, type SectionProps } from '../design/section';
 import { E_STEEL, G_STEEL } from '../design/capacity';
 import type { FEElement, FENode, FrameModel, LoadCase, Vec3 } from '../fea/frame';
@@ -116,7 +117,11 @@ const vdim = (sp: SectionProps, depthVertical: boolean) => (depthVertical ? sp.d
  * plane, which in the web member convention (depth across the bridge unless rotated) is the rotated orientation.
  */
 export function effectiveSections(input: BridgeInput): BridgeInput['sections'] {
-  return { ...input.sections, endPost: { ...input.sections.topChord, rotate: !input.sections.topChord.rotate } };
+  // square and circular sections: the depth direction is the default one
+  const s = Object.fromEntries(
+    Object.entries(input.sections).map(([g, sec]) => [g, isSymmetric(sec.category) && sec.rotate ? { ...sec, rotate: false } : sec])
+  ) as BridgeInput['sections'];
+  return { ...s, endPost: { ...s.topChord, rotate: !s.topChord.rotate } };
 }
 
 /** Stringer positions across the deck (m from the centreline). */

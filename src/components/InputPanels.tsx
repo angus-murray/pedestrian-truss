@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NumberField, SelectField, Check, Segmented, Modal } from 'engineering-ui';
 import { ChevronDown, ChevronUp, Plus, Trash2, Wand2 } from 'lucide-react';
-import { categoriesFor, sectionsOf, type SectionCategory } from '../data/sections';
+import { categoriesFor, isSymmetric, sectionsOf, type SectionCategory } from '../data/sections';
 import { defaultGrade, gradesFor } from '../data/grades';
 import { sectionProps } from '../design/section';
 import {
@@ -361,7 +361,7 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
             // nearest depth, or nearest mass to or from solid rods
             const by = (s: (typeof opts)[number]) => (c === 'ROD' || g.category === 'ROD' ? Math.abs(s.massPerMetre - sp.mass) : Math.abs(s.depth - sp.d));
             const near = opts.reduce((a, s) => (by(s) < by(a) ? s : a), opts[0]);
-            update({ category: c, name: near.name, grade: defaultGrade(c) });
+            update({ category: c, name: near.name, grade: defaultGrade(c), rotate: isSymmetric(c) ? false : g.rotate });
           }}
           options={categoriesFor(group).map((c) => ({ value: c, label: c === 'ROD' ? 'Rod' : c }))}
         />
@@ -386,8 +386,9 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
       <div className="grid grid-cols-2 gap-2">
         <SelectField value={g.grade} onChange={(v) => update({ grade: v })} options={gradesFor(g.category).map((x) => ({ value: x.name, label: x.name }))} />
         <SelectField
-          value={g.rotate ? 'r' : 'd'}
+          value={g.rotate && !isSymmetric(g.category) ? 'r' : 'd'}
           onChange={(v) => update({ rotate: v === 'r' })}
+          disabled={isSymmetric(g.category)}
           options={[
             { value: 'd', label: `Depth ${info.depthDir}` },
             { value: 'r', label: `Depth ${info.rotDir}` }

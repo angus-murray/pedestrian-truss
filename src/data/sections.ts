@@ -172,5 +172,8 @@ export const CATEGORIES: SectionCategory[] = ['SHS', 'RHS', 'CHS', 'UB', 'UC'];
 /** Section types for each member: rods for the plan bracing only. */
 export const categoriesFor = (group: string): SectionCategory[] => (group === 'bracing' ? [...CATEGORIES, 'ROD'] : CATEGORIES);
 
+/** Sections the same about both axes (square and circular), for which the depth direction has no meaning. */
+export const isSymmetric = (c: SectionCategory) => c === 'SHS' || c === 'CHS' || c === 'ROD';
+
 export const sectionsOf = (c: SectionCategory) => SECTIONS.filter((s) => s.category === c);
 export const findSection = (name: string) => SECTIONS.find((s) => s.name === name);
