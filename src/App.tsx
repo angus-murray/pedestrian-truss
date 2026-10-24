@@ -97,7 +97,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 font-sans flex flex-col">
-      <AppHeader name="PedTruss" onAbout={() => setShowAbout(true)} onReport={() => setShowReport(true)} actions={actions} />
+      {/* the PDF report is hidden for now: pass onReport={() => setShowReport(true)} to show its button again */}
+      <AppHeader name="PedTruss" onAbout={() => setShowAbout(true)} actions={actions} />
       <main className="flex-1 max-w-7xl w-full mx-auto p-3">
         {loadNotes.length > 0 && (
           <div className="mb-3">
