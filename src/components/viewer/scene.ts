@@ -177,13 +177,16 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     for (const sg of [-1, 1]) {
       const y = sg * (geo.clearWidth / 2 + rail);
       // bracket where each web member passes the rail level
-      const xs = webs
+      const at = webs
         .filter((m) => Math.sign(m.a[1]) === sg && (m.a[2] - zr) * (m.b[2] - zr) <= 0 && m.a[2] !== m.b[2])
-        .map((m) => m.a[0] + ((zr - m.a[2]) / (m.b[2] - m.a[2])) * (m.b[0] - m.a[0]))
-        .sort((p, q) => p - q);
+        .map((m) => ({ m, x: m.a[0] + ((zr - m.a[2]) / (m.b[2] - m.a[2])) * (m.b[0] - m.a[0]) }));
       add(furniture, rod([0, y, zr], [geo.L, y, zr], rail), railMat);
-      for (const x of xs) {
-        const yFace = sg * yFaceAbs;
+      for (const { m, x } of at) {
+        // to the member's inner surface on its centreline: the flange face of an I-section with its depth across
+        // the bridge, its web with its depth in the truss plane; the face of a hollow section or rod
+        const across = Math.abs(m.depthDir[1]) > 0.5;
+        const half = (m.sp.kind === 'I' || m.sp.kind === 'PFC' ? (across ? m.sp.d : m.sp.def.webThick) : across ? m.sp.d : m.sp.b) / 2000;
+        const yFace = sg * (geo.s / 2 - half);
         add(furniture, boxBetween(x - 0.005, x + 0.005, Math.min(yFace, y), Math.max(yFace, y), zr - rail - 0.05, zr - rail), railMat);
       }
     }

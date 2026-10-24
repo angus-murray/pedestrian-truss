@@ -76,7 +76,8 @@ export const InputPanels: React.FC<{
             options={[
               { value: 'warren', label: 'Warren' },
               { value: 'pratt', label: 'Pratt' },
-              { value: 'howe', label: 'Howe' }
+              { value: 'howe', label: 'Howe' },
+              { value: 'vierendeel', label: 'Vierendeel' }
             ]}
           />
         </div>
@@ -221,7 +222,7 @@ export const InputPanels: React.FC<{
       {/* ---------------------------------------------------------------- sections */}
       <section className="panel">
         <h2 className="panel-title" title="Section depth direction: the direction of the section depth (d) in the bridge.">Sections</h2>
-        {GROUPS.filter((g) => g !== 'vertical' || input.trussType !== 'warren')
+        {GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'diagonal' || input.trussType !== 'vierendeel'))
           .filter((g) => g !== 'stringer' || input.stringerCount > 0)
           .map((g, i) =>
             g === 'endPost' ? (
@@ -583,7 +584,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
     />
     );
   };
-  const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'stringer' || input.stringerCount > 0)), [input.trussType, input.stringerCount]);
+  const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'diagonal' || input.trussType !== 'vierendeel') && (g !== 'stringer' || input.stringerCount > 0)), [input.trussType, input.stringerCount]);
   return (
     <section className="panel">
       <h2 className="panel-title" title="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">

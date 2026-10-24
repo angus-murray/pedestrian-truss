@@ -1,6 +1,6 @@
 import type { SectionCategory } from '../data/sections';
 
-export type TrussType = 'warren' | 'pratt' | 'howe';
+export type TrussType = 'warren' | 'pratt' | 'howe' | 'vierendeel';
 export type BracingType = 'x' | 'single' | 'none';
 export type DeckType = 'concrete' | 'precast' | 'frp' | 'timber' | 'steel';
 export type GroupKey = 'topChord' | 'bottomChord' | 'endPost' | 'vertical' | 'diagonal' | 'crossGirder' | 'stringer' | 'bracing';

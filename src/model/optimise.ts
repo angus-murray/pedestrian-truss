@@ -50,7 +50,7 @@ function chordOrderOk(sections: BridgeInput['sections']): boolean {
 function proportionsOk(input: BridgeInput): boolean {
   const s = effectiveSections(input);
   const wt = transverseWidth(s.topChord, 'chord'), wb = transverseWidth(s.bottomChord, 'chord');
-  const webs: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : ['vertical', 'diagonal'];
+  const webs: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : input.trussType === 'vierendeel' ? ['vertical'] : ['vertical', 'diagonal'];
   return webs.every((g) => {
     const w = transverseWidth(s[g], 'web');
     return w <= input.maxWebRatio * Math.min(wt, wb) + 1e-6 && w >= input.minWebRatio * Math.max(wt, wb) - 1e-6;

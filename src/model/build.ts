@@ -179,7 +179,7 @@ export function transverseWidth(spec: GroupSection, kind: 'chord' | 'web'): numb
 export function webWidthWarning(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): string | null {
   const secs = effectiveSections({ ...input, sections });
   const wChord = Math.min(transverseWidth(secs.topChord, 'chord'), transverseWidth(secs.bottomChord, 'chord'));
-  const groups: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : ['vertical', 'diagonal'];
+  const groups: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : input.trussType === 'vierendeel' ? ['vertical'] : ['vertical', 'diagonal'];
   const wide = groups
     .map((g) => ({ g, w: transverseWidth(secs[g], 'web') }))
     .filter(({ w }) => w > wChord + 1e-6);
@@ -222,7 +222,7 @@ export function panelCount(input: BridgeInput): number {
 /** Width across the bridge of the widest member of the trusses (chords, end posts, verticals, diagonals), m. */
 export function trussWidth(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): number {
   const s = effectiveSections({ ...input, sections });
-  const webs: GroupKey[] = input.trussType === 'warren' ? ['endPost', 'diagonal'] : ['endPost', 'vertical', 'diagonal'];
+  const webs: GroupKey[] = input.trussType === 'warren' ? ['endPost', 'diagonal'] : input.trussType === 'vierendeel' ? ['endPost', 'vertical'] : ['endPost', 'vertical', 'diagonal'];
   return Math.max(transverseWidth(s.topChord, 'chord'), transverseWidth(s.bottomChord, 'chord'), ...webs.map((g) => transverseWidth(s[g], 'web')));
 }
 
@@ -353,7 +353,13 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const bot: number[][] = [[], []]; // [side][k]
   const top: number[][] = [[], []];
   // top chord nodes: panel points 1 to n − 1 (Pratt, Howe) or mid-panel (Warren); raking end posts at both ends
-  const topXs: number[] = verticals ? Array.from({ length: n - 1 }, (_, k) => X(k + 1)) : Array.from({ length: n }, (_, k) => X(k + 0.5));
+  // (Vierendeel: every panel point, the top chord running to the ends over vertical end posts)
+  const vierendeel = input.trussType === 'vierendeel';
+  const topXs: number[] = vierendeel
+    ? Array.from({ length: n + 1 }, (_, k) => X(k))
+    : verticals
+      ? Array.from({ length: n - 1 }, (_, k) => X(k + 1))
+      : Array.from({ length: n }, (_, k) => X(k + 0.5));
   sides.forEach(([, y], si) => {
     for (let k = 0; k <= n; k++) bot[si][k] = node(X(k), y, 0);
     topXs.forEach((x, k) => (top[si][k] = node(x, y, H)));
@@ -364,7 +370,17 @@ export function buildModel(input: BridgeInput): BridgeModel {
     // chords
     for (let k = 0; k < n; k++) addMember(`BC${k + 1}${side}`, 'bottomChord', side, k + 1, bot[si][k], bot[si][k + 1], chordDir(!bcVert));
     for (let k = 0; k < topXs.length - 1; k++) addMember(`TC${k + 1}${side}`, 'topChord', side, k + 1, top[si][k], top[si][k + 1], chordDir(!tcVert));
-    if (verticals) {
+    if (vierendeel) {
+      // Vierendeel: vertical end posts at the ends (with the top chord section, framing the end corners), verticals
+      // at panel points 1 to n − 1, no diagonals
+      const T = (k: number) => top[si][k];
+      addMember(`EPL${side}`, 'endPost', side, 0, bot[si][0], T(0), webDir(secs.endPost.rotate, P(bot[si][0]), P(T(0))), { extra: [hrFrac] });
+      addMember(`EPR${side}`, 'endPost', side, n, T(n), bot[si][n], webDir(secs.endPost.rotate, P(T(n)), P(bot[si][n])), { extra: [1 - hrFrac] });
+      for (let k = 1; k < n; k++) {
+        const A = P(bot[si][k]), B = P(T(k));
+        addMember(`V${k}${side}`, 'vertical', side, k, bot[si][k], T(k), webDir(secs.vertical.rotate, A, B), { extra: cgOnVerticals ? [hrFrac, zCG / H] : [hrFrac] });
+      }
+    } else if (verticals) {
       // Pratt and Howe: raking end posts in the end panels, verticals at panel points 1 to n − 1
       const T = (k: number) => top[si][k - 1];
       addMember(`EPL${side}`, 'endPost', side, 1, bot[si][0], T(1), webDir(secs.endPost.rotate, P(bot[si][0]), P(T(1))), { extra: [hrFrac] });
@@ -589,7 +605,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const webWide = webWidthWarning(input);
   if (webWide) errors.push(webWide);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
-  if (ang < 30 || ang > 65) errors.push('Truss diagonal angles are outside typical limits.');
+  if (input.trussType !== 'vierendeel' && (ang < 30 || ang > 65)) errors.push('Truss diagonal angles are outside typical limits.');
 
   const geo: Geometry = {
     L, n, a, s, trussWidth: trussW, H, dTC, dBC, wTC, wBC, zCG, cgOnVerticals, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckShares, deckWidth,

@@ -244,3 +244,16 @@ test('rod plan bracing: tension only, threaded ends, X-bracing only', async () =
   }
   assert.ok(buildModel({ ...inp, bracing: 'single' }).errors.some((e) => e.includes('X-bracing')));
 });
+
+test('Vierendeel truss: verticals only, vertical end posts, top chord to the ends', async () => {
+  const { buildModel } = await import('../src/model/build');
+  const m = buildModel({ ...DEFAULT_INPUT, trussType: 'vierendeel' });
+  assert.equal(m.errors.length, 0);
+  assert.equal(m.members.filter((x) => x.group === 'diagonal').length, 0);
+  const n = m.geo.n;
+  assert.equal(m.members.filter((x) => x.group === 'vertical').length, 2 * (n - 1));
+  for (const ep of m.members.filter((x) => x.group === 'endPost')) assert.ok(Math.abs(ep.a[0] - ep.b[0]) < 1e-9, 'end posts vertical');
+  const tc = m.members.filter((x) => x.group === 'topChord' && x.side === 'A');
+  assert.equal(tc.length, n);
+  assert.ok(Math.min(...tc.map((x) => Math.min(x.a[0], x.b[0]))) < 1e-9 && Math.max(...tc.map((x) => Math.max(x.a[0], x.b[0]))) > m.geo.L - 1e-9);
+});
