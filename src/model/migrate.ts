@@ -4,6 +4,8 @@
  * rather than applied silently. Inputs missing from the file (added in later versions) take their defaults, and are
  * listed too.
  */
+import { findSection, sectionsOf } from '../data/sections';
+import { defaultGrade } from '../data/grades';
 import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './types';
 
 /** Version of the saved input format. 1: files without a version (before migrations were recorded). */
@@ -57,6 +59,16 @@ export function loadInput(raw: Partial<BridgeInput> & { fileVersion?: number }):
   if (pins.bracingPinned === false) notes.push('Plan bracing is now always pinned at its ends (it was moment connected in the saved inputs).');
   delete (x as { webPinned?: boolean }).webPinned;
   delete (x as { bracingPinned?: boolean }).bracingPinned;
+
+  // channels (PFC) are no longer offered: the nearest universal beam by depth
+  if (x.sections)
+    for (const [g, sec] of Object.entries(x.sections) as [keyof BridgeInput['sections'], BridgeInput['sections'][keyof BridgeInput['sections']]][]) {
+      if (sec?.category !== 'PFC') continue;
+      const d = findSection(sec.name)?.depth ?? 150;
+      const ub = sectionsOf('UB').reduce((a, c) => (Math.abs(c.depth - d) < Math.abs(a.depth - d) ? c : a));
+      x.sections = { ...x.sections, [g]: { ...sec, category: 'UB', name: ub.name, grade: defaultGrade('UB') } };
+      notes.push(`${sec.name} (PFC sections are no longer offered) was replaced by ${ub.name}.`);
+    }
 
   // inputs added since the file was saved take their defaults
   for (const k of Object.keys(DEFAULT_INPUT) as (keyof BridgeInput)[])

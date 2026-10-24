@@ -161,7 +161,7 @@ const hollow: SectionDefinition[] = [
 /** Sections with any element thinner than 3 mm are not offered. */
 export const SECTIONS: SectionDefinition[] = [...hot, ...hollow].filter((s) => Math.min(s.flangeThick, s.webThick, s.wallThick ?? Infinity) >= 3);
 
-export const CATEGORIES: SectionCategory[] = ['SHS', 'RHS', 'CHS', 'UB', 'UC', 'PFC'];
+export const CATEGORIES: SectionCategory[] = ['SHS', 'RHS', 'CHS', 'UB', 'UC'];
 
 export const sectionsOf = (c: SectionCategory) => SECTIONS.filter((s) => s.category === c);
 export const findSection = (name: string) => SECTIONS.find((s) => s.name === name);
