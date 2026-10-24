@@ -134,7 +134,9 @@ export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, Cut
     if (m.group === 'crossGirder') {
       const cgBottom = geo.zCG - geo.dCG / 2;
       // below the chord: to its outer face; level with it: to its inner face; above it: to the web members
-      const y = cgBottom >= geo.dBC / 2 - 1e-6 ? geo.s / 2 - webHalfY : geo.cgTop <= -geo.dBC / 2 + 1e-6 ? geo.s / 2 + geo.wBC / 2 : geo.s / 2 - geo.wBC / 2;
+      const vert = model.members.find((x) => x.group === 'vertical');
+      const vHalf = vert ? (model.input.sections.vertical.rotate ? vert.sp.b : vert.sp.d) / 2000 : webHalfY;
+      const y = geo.cgOnVerticals && geo.cgTop > geo.dBC / 2 + 1e-6 ? geo.s / 2 - vHalf : cgBottom >= geo.dBC / 2 - 1e-6 ? geo.s / 2 - webHalfY : geo.cgTop <= -geo.dBC / 2 + 1e-6 ? geo.s / 2 + geo.wBC / 2 : geo.s / 2 - geo.wBC / 2;
       return { p: [0, y * Math.sign(p[1]), 0], n: [0, 1, 0] };
     }
     if (m.group === 'bracing') {

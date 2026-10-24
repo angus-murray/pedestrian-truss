@@ -49,13 +49,15 @@ export interface Geometry {
   n: number;
   a: number; // panel length
   s: number; // truss spacing, centre to centre
-  chordWidth: number; // m
+  trussWidth: number; // m, width across the bridge of the widest truss member
   H: number; // truss depth
   dTC: number; // vertical dimension of the top chord (m)
   dBC: number;
   wTC: number; // horizontal dimension of the top chord (m)
   wBC: number;
   zCG: number; // cross girder centroid
+  /** Cross girders raised above the bottom chord and connected to the verticals at their own level. */
+  cgOnVerticals: boolean;
   dCG: number; // cross girder depth (m)
   cgTop: number;
   /** Stringers: centroid level, depth (m) and positions across the deck. */
@@ -108,9 +110,13 @@ const g = 9.81;
 const hdim = (sp: SectionProps, depthVertical: boolean) => (depthVertical ? sp.b : sp.d) / 1000;
 const vdim = (sp: SectionProps, depthVertical: boolean) => (depthVertical ? sp.d : sp.b) / 1000;
 
-/** Sections of each group as built: the raking end posts take the top chord section. */
+/**
+ * Sections of each group as built: the raking end posts take the top chord section, oriented as the top chord. A
+ * top chord with its depth vertical (in the truss plane) continues as an end post with its depth in the truss
+ * plane, which in the web member convention (depth across the bridge unless rotated) is the rotated orientation.
+ */
 export function effectiveSections(input: BridgeInput): BridgeInput['sections'] {
-  return { ...input.sections, endPost: input.sections.topChord };
+  return { ...input.sections, endPost: { ...input.sections.topChord, rotate: !input.sections.topChord.rotate } };
 }
 
 /** Stringer positions across the deck (m from the centreline). */
@@ -128,9 +134,8 @@ export function stringerFitError(input: BridgeInput, sections: BridgeInput['sect
   const ys = stringerPositions(input);
   if (!ys.length) return null;
   const secs = effectiveSections({ ...input, sections });
-  const tc = sectionProps(secs.topChord), bc = sectionProps(secs.bottomChord);
-  const wTC = hdim(tc, !secs.topChord.rotate), wBC = hdim(bc, !secs.bottomChord.rotate);
-  const s = input.clearWidth + (2 * input.handrailWidth) / 1000 + Math.max(wTC, wBC);
+  const wBC = hdim(sectionProps(secs.bottomChord), !secs.bottomChord.rotate);
+  const s = trussSpacing(input, sections);
   const limit = s / 2 - wBC / 2 - 0.02;
   const outer = Math.max(...ys.map(Math.abs));
   if (outer <= limit) return null;
@@ -183,8 +188,47 @@ export function webWidthWarning(input: BridgeInput, sections: BridgeInput['secti
   return `The ${names} are wider across the bridge than the chords (${(wChord * 1000).toFixed(0)} mm) and stand out of the chord faces. Use web sections no wider than the chords.`;
 }
 
+/** Number of panels: the input, an even number of at least two. */
+/**
+ * Error for a cross girder level the details cannot provide, or null. Dropped, the underside of the cross girders
+ * may not be below the underside of the bottom chords. Raised, the top of the cross girders may not be above the top
+ * of the bottom chords unless they connect to verticals at least as wide (along the bridge) as they are, below the
+ * top chord.
+ */
+export function cgLevelError(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): string | null {
+  const s = effectiveSections({ ...input, sections });
+  const bc = sectionProps(s.bottomChord), cg = sectionProps(s.crossGirder), tc = sectionProps(s.topChord), v = sectionProps(s.vertical);
+  const dBC = vdim(bc, !s.bottomChord.rotate), dCG = vdim(cg, !s.crossGirder.rotate), dTC = vdim(tc, !s.topChord.rotate);
+  const level = input.cgLevel / 1000;
+  const mm = (x: number) => `${Math.round(x * 1000)} mm`;
+  if (level < dCG - dBC - 1e-6)
+    return `The cross girders are dropped below the underside of the bottom chords (by ${mm(dCG - dBC - level)}). With these sections the lowest cross girder level is ${mm(dCG - dBC)}.`;
+  if (level <= 1e-6) return null;
+  if (input.trussType === 'warren')
+    return 'In a Warren truss the cross girders cannot be raised above the top of the bottom chords: there are no verticals to connect them to. Use a cross girder level of 0 mm or less.';
+  const wCG = hdim(cg, !s.crossGirder.rotate), wV = hdim(v, !s.vertical.rotate); // widths along the bridge
+  if (wCG > wV + 1e-6)
+    return `The cross girders (${mm(wCG)} wide along the bridge) are wider than the verticals (${mm(wV)}), so they cannot be raised above the top of the bottom chords to connect to the verticals.`;
+  const cgTop = dBC / 2 + level;
+  if (cgTop > input.depth - dTC / 2 - 0.05)
+    return 'The cross girders are raised too close to the top chords (at least 50 mm below their underside is needed).';
+  return null;
+}
+
 export function panelCount(input: BridgeInput): number {
-  return 2 * Math.max(2, Math.round(input.span / (2 * Math.max(0.5, input.panelTarget))));
+  return 2 * Math.max(1, Math.round(input.panels / 2));
+}
+
+/** Width across the bridge of the widest member of the trusses (chords, end posts, verticals, diagonals), m. */
+export function trussWidth(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): number {
+  const s = effectiveSections({ ...input, sections });
+  const webs: GroupKey[] = input.trussType === 'warren' ? ['endPost', 'diagonal'] : ['endPost', 'vertical', 'diagonal'];
+  return Math.max(transverseWidth(s.topChord, 'chord'), transverseWidth(s.bottomChord, 'chord'), ...webs.map((g) => transverseWidth(s[g], 'web')));
+}
+
+/** Truss spacing (centres): clear width + 2 × handrail offset + truss width, m. */
+export function trussSpacing(input: BridgeInput, sections: BridgeInput['sections'] = input.sections): number {
+  return input.clearWidth + (2 * input.handrailWidth) / 1000 + trussWidth(input, sections);
 }
 
 export function buildModel(input: BridgeInput): BridgeModel {
@@ -198,12 +242,15 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const tcVert = !secs.topChord.rotate, bcVert = !secs.bottomChord.rotate, cgVert = !secs.crossGirder.rotate;
   const wTC = hdim(sp.topChord, tcVert), wBC = hdim(sp.bottomChord, bcVert);
   const dTC = vdim(sp.topChord, tcVert), dBC = vdim(sp.bottomChord, bcVert);
-  const chordWidth = Math.max(wTC, wBC);
-  const s = input.clearWidth + (2 * input.handrailWidth) / 1000 + chordWidth;
+  const trussW = trussWidth(input);
+  const s = trussSpacing(input);
   const dCG = vdim(sp.crossGirder, cgVert);
   const cgTop = dBC / 2 + input.cgLevel / 1000;
   let zCG = cgTop - dCG / 2;
   if (Math.abs(zCG) < 0.002) zCG = 0;
+  // raised above the top of the bottom chords: connected to the verticals at their own level (the end cross
+  // girders, at the end posts, stay on rigid links to the bottom chord nodes)
+  const cgOnVerticals = input.cgLevel > 0 && input.trussType !== 'warren' && !cgLevelError(input) && zCG / H > 0.03;
   const stringerYs = stringerPositions(input);
   const dST = stringerYs.length ? vdim(sp.stringer, !secs.stringer.rotate) : 0;
   // stringers framed between the cross girders with their tops level with the cross girder tops
@@ -211,7 +258,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const deckT = input.deckThickness / 1000;
   const deckSoffit = cgTop;
   const deckTop = deckSoffit + deckT;
-  const deckWidth = s - chordWidth;
+  const deckWidth = s - trussW;
   const verticals = input.trussType !== 'warren';
   const handrailHeights = (input.handrails === 2 ? [input.handrailHeight1, input.handrailHeight2] : [input.handrailHeight1]).slice().sort((x, y) => x - y);
   const hrTop = handrailHeights[handrailHeights.length - 1];
@@ -313,7 +360,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
   });
 
   const hrFrac = (deckTop + hrTop) / H;
-  const webRel = input.webPinned;
+  // pinned diagonals (Pratt and Howe): in a Warren truss the diagonals form the U-frames and stay moment connected
+  const webRel = input.webPinned && verticals;
   sides.forEach(([side, ], si) => {
     // chords
     for (let k = 0; k < n; k++) addMember(`BC${k + 1}${side}`, 'bottomChord', side, k + 1, bot[si][k], bot[si][k + 1], chordDir(!bcVert));
@@ -325,7 +373,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
       addMember(`EPR${side}`, 'endPost', side, n, T(n - 1), bot[si][n], webDir(secs.endPost.rotate, P(T(n - 1)), P(bot[si][n])), { extra: [1 - hrFrac] });
       for (let k = 1; k < n; k++) {
         const A = P(bot[si][k]), B = P(T(k));
-        addMember(`V${k}${side}`, 'vertical', side, k, bot[si][k], T(k), webDir(secs.vertical.rotate, A, B), { extra: [hrFrac] });
+        addMember(`V${k}${side}`, 'vertical', side, k, bot[si][k], T(k), webDir(secs.vertical.rotate, A, B), { extra: cgOnVerticals ? [hrFrac, zCG / H] : [hrFrac] });
       }
       for (let k = 1; k < n - 1; k++) {
         let na: number, nb: number;
@@ -351,6 +399,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
   for (let k = 0; k <= n; k++) {
     sides.forEach(([, y], si) => {
       if (zCG === 0) cgEnd[si][k] = bot[si][k];
+      else if (cgOnVerticals && k > 0 && k < n) cgEnd[si][k] = node(X(k), y, zCG); // the vertical's node at that level
       else {
         cgEnd[si][k] = node(X(k), y, zCG);
         link(bot[si][k], cgEnd[si][k]);
@@ -535,13 +584,15 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const errors: string[] = [];
   const fit = stringerFitError(input);
   if (fit) errors.push(fit);
+  const cgErr = cgLevelError(input);
+  if (cgErr) errors.push(cgErr);
   const webWide = webWidthWarning(input);
   if (webWide) warnings.push(webWide);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
   if (ang < 30 || ang > 65) warnings.push(`Diagonals are at ${ang.toFixed(0)}° to the horizontal (30° to 65° is usual).`);
 
   const geo: Geometry = {
-    L, n, a, s, chordWidth, H, dTC, dBC, wTC, wBC, zCG, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckShares, deckWidth,
+    L, n, a, s, trussWidth: trussW, H, dTC, dBC, wTC, wBC, zCG, cgOnVerticals, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckShares, deckWidth,
     clearWidth: input.clearWidth,
     handrailY: input.clearWidth / 2,
     topX0: topXs[0],

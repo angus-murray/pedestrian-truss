@@ -35,11 +35,14 @@ const MODES: { key: ViewMode; label: string; icon: React.ReactNode }[] = [
   { key: 'buckling', label: 'Buckling', icon: <Ico><path d="M12 2v20" strokeDasharray="2 2" /><path d="M12 2c-6 6-6 14 0 20" /></Ico> },
   { key: 'vibration', label: 'Vibration', icon: <Ico><path d="M2 12c2-6 4-6 6 0s4 6 6 0 4-6 6 0" /></Ico> }
 ];
+/** Eye height above the deck of the first-person view (m). */
+const EYE_HEIGHT = 1.6;
 const VIEWS = [
   { key: 'iso', label: '3D' },
   { key: 'elev', label: 'Elevation' },
   { key: 'plan', label: 'Plan' },
-  { key: 'end', label: 'End' }
+  { key: 'end', label: 'End' },
+  { key: 'fpv', label: 'First Person' }
 ] as const;
 
 export const Viewer3D: React.FC<{
@@ -69,6 +72,9 @@ export const Viewer3D: React.FC<{
     overlay: THREE.Group;
     lineMats: LineMaterial[];
     animate: ((t: number) => void) | null;
+    /** First-person view: a pedestrian's eye on the deck. */
+    eye: THREE.PerspectiveCamera;
+    fpv: { yaw: number; pitch: number; keys: Set<string>; last: number } | null;
   } | null>(null);
   const bridge = useRef<BridgeObjects | null>(null);
   const [mode, setMode] = useState<ViewMode>('model');
@@ -127,13 +133,18 @@ export const Viewer3D: React.FC<{
     const overlay = new THREE.Group();
     scene.add(overlay);
     const lineMats: LineMaterial[] = [];
-    three.current = { renderer, scene, camera, persp: camera, ortho, orthoHalf: 20, controls, sun, ground, overlay, lineMats, animate: null };
+    // a pedestrian's eye: 60° vertical field of view, close to the natural field of view on a screen
+    const eye = new THREE.PerspectiveCamera(60, 1, 0.05, 2000);
+    eye.up.set(0, 0, 1);
+    three.current = { renderer, scene, camera, persp: camera, ortho, orthoHalf: 20, controls, sun, ground, overlay, lineMats, animate: null, eye, fpv: null };
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
       if (!w || !h) return;
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      eye.aspect = w / h;
+      eye.updateProjectionMatrix();
       const half = three.current?.orthoHalf ?? 20;
       ortho.left = -half;
       ortho.right = half;
@@ -146,8 +157,9 @@ export const Viewer3D: React.FC<{
     ro.observe(el);
     resize();
     renderer.setAnimationLoop((time) => {
-      controls.update();
       const t = three.current;
+      if (t?.fpv) walk(t, time / 1000);
+      else controls.update();
       t?.animate?.(time / 1000);
       if (t) renderer.render(scene, t.camera);
     });
@@ -171,11 +183,75 @@ export const Viewer3D: React.FC<{
     (t.ground.material as THREE.MeshStandardMaterial).color.set(theme === 'dark' ? '#2b302b' : '#dfe3d6');
   }, [theme]);
 
+  // ---------------------------------------------------------------- first-person view
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const [fpv, setFpv] = useState(false);
+  /** Moves the eye with the keys held (walking pace 1.4 m/s), within the walkway, and aims it. */
+  const walk = (t: NonNullable<typeof three.current>, now: number) => {
+    const f = t.fpv!;
+    const dt = Math.min(0.1, now - (f.last || now));
+    f.last = now;
+    const { geo } = modelRef.current;
+    const fwd = new THREE.Vector3(Math.cos(f.yaw), Math.sin(f.yaw), 0);
+    const side = new THREE.Vector3(-fwd.y, fwd.x, 0);
+    const v = new THREE.Vector3();
+    const k = f.keys;
+    if (k.has('w') || k.has('arrowup')) v.add(fwd);
+    if (k.has('s') || k.has('arrowdown')) v.sub(fwd);
+    if (k.has('a') || k.has('arrowleft')) v.add(side);
+    if (k.has('d') || k.has('arrowright')) v.sub(side);
+    if (v.lengthSq() > 0) t.eye.position.addScaledVector(v.normalize(), (k.has('shift') ? 4 : 1.4) * dt);
+    clampEye(t, geo);
+    const dir = new THREE.Vector3(Math.cos(f.pitch) * Math.cos(f.yaw), Math.cos(f.pitch) * Math.sin(f.yaw), Math.sin(f.pitch));
+    t.eye.lookAt(t.eye.position.clone().add(dir));
+  };
+  const clampEye = (t: NonNullable<typeof three.current>, geo: BridgeModel['geo']) => {
+    const yMax = Math.max(0, geo.clearWidth / 2 - 0.3);
+    t.eye.position.x = Math.min(geo.L + 6, Math.max(-6, t.eye.position.x));
+    t.eye.position.y = Math.min(yMax, Math.max(-yMax, t.eye.position.y));
+    t.eye.position.z = geo.deckTop + EYE_HEIGHT;
+  };
+  useEffect(() => {
+    if (!fpv) return;
+    const keyOf = (e: KeyboardEvent) => e.key.toLowerCase();
+    const MOVE = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'];
+    const dn = (e: KeyboardEvent) => {
+      const k = keyOf(e);
+      if (!MOVE.includes(k) || (e.target as HTMLElement)?.closest('input, select, textarea')) return;
+      e.preventDefault();
+      three.current?.fpv?.keys.add(k);
+    };
+    const up = (e: KeyboardEvent) => three.current?.fpv?.keys.delete(keyOf(e));
+    const blur = () => three.current?.fpv?.keys.clear();
+    window.addEventListener('keydown', dn);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', dn);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, [fpv]);
+
   // ---------------------------------------------------------------- camera views
   const setView = (v: (typeof VIEWS)[number]['key']) => {
     const t = three.current;
     if (!t) return;
     const { geo } = model;
+    if (v === 'fpv') {
+      // standing on the deck near the left end, on the centreline, looking along the bridge
+      t.fpv = { yaw: 0, pitch: -0.05, keys: new Set(), last: 0 };
+      t.eye.position.set(Math.min(2, geo.L / 4), 0, geo.deckTop + EYE_HEIGHT);
+      t.camera = t.eye;
+      t.controls.enabled = false;
+      setFpv(true);
+      setShowDeck(true);
+      return;
+    }
+    t.fpv = null;
+    t.controls.enabled = true;
+    setFpv(false);
     const c = new THREE.Vector3(geo.L / 2, 0, geo.H / 2);
     const r = Math.max(geo.L, 8);
     if (v === 'iso') {
@@ -400,7 +476,20 @@ export const Viewer3D: React.FC<{
     return hit ? (hit.object.userData.memberId as number) : null;
   };
   const down = useRef<{ x: number; y: number } | null>(null);
+  const lastPtr = useRef<{ x: number; y: number } | null>(null);
   const onMove = (e: React.PointerEvent) => {
+    const t = three.current;
+    if (t?.fpv && e.buttons) {
+      // drag to look around
+      const p = lastPtr.current;
+      if (p) {
+        t.fpv.yaw -= (e.clientX - p.x) * 0.004;
+        t.fpv.pitch = Math.max(-1.3, Math.min(1.3, t.fpv.pitch + (e.clientY - p.y) * 0.004));
+      }
+      lastPtr.current = { x: e.clientX, y: e.clientY };
+      return setHover(null);
+    }
+    lastPtr.current = null;
     if (e.buttons) return setHover(null);
     const id = pick(e);
     const r = mountRef.current!.getBoundingClientRect();
@@ -438,6 +527,13 @@ export const Viewer3D: React.FC<{
         onPointerUp={onUp}
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
+        onWheel={(e) => {
+          const t = three.current;
+          if (!t?.fpv) return;
+          // wheel: a step forward or back
+          t.eye.position.addScaledVector(new THREE.Vector3(Math.cos(t.fpv.yaw), Math.sin(t.fpv.yaw), 0), -Math.sign(e.deltaY) * 0.5);
+          clampEye(t, model.geo);
+        }}
       />
 
       {/* modes */}
@@ -591,6 +687,12 @@ export const Viewer3D: React.FC<{
                   {l.label} (max {axialMax(results!, combo < 0 ? 0 : combo).toFixed(0)} kN)
                 </div>
               ))}
+        </div>
+      )}
+
+      {fpv && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-white/90 border border-slate-200 rounded-lg shadow-2xs px-3 py-1.5 text-[11px] text-slate-700">
+          Eye level {EYE_HEIGHT.toFixed(1)} m above the deck. Drag to look around; W/S or ↑/↓ to walk, A/D or ←/→ to step sideways (Shift to hurry); wheel to step.
         </div>
       )}
 

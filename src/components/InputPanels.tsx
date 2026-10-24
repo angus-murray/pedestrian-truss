@@ -78,20 +78,19 @@ export const InputPanels: React.FC<{
           />
         </div>
         <div className="grid grid-cols-2 gap-2 items-end">
-          <NumberField label="Panel Length Target (m)" value={input.panelTarget} onChange={(v) => set('panelTarget', v)} min={1} max={6} step={0.1} decimals={2} title="The number of panels is the nearest even number to span / target" />
-          <div className="space-y-1 pb-1">
-            <Readout label="Panels" value={n} />
+          <NumberField label="Number of Panels" value={input.panels} onChange={(v) => set('panels', 2 * Math.max(1, Math.round(v / 2)))} min={2} max={40} step={2} title="An even number, so that the trusses are symmetric" />
+          <div className="pb-1">
             <Readout label={<>Panel Length <S s="a" /></>} value={`${(input.span / n).toFixed(3)} m`} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Clear Width (m)" value={input.clearWidth} onChange={(v) => set('clearWidth', v)} min={1} max={8} step={0.1} decimals={2} title="Between the inside faces of the handrails" />
-          <NumberField label="Handrail Offset (mm)" value={input.handrailWidth} onChange={(v) => set('handrailWidth', v)} min={0} max={400} step={10} title="Inside face of the truss to the inside face of the handrail" />
+          <NumberField label="Handrail Offset (mm)" value={input.handrailWidth} onChange={(v) => set('handrailWidth', v)} min={0} max={400} step={10} title="Inside face of the truss (its widest member) to the inside face of the handrail" />
         </div>
-        <Readout label="Chord Width" value={`${(geo.chordWidth * 1000).toFixed(0)} mm`} title="Horizontal width of the wider chord" />
-        <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail offset + chord width" />
+        <Readout label="Truss Width" value={`${(geo.trussWidth * 1000).toFixed(0)} mm`} title="Width across the bridge of the widest truss member" />
+        <Readout label={<>Truss Spacing <S s="s" /> (Centres)</>} value={`${geo.s.toFixed(3)} m`} title="Clear width + 2 × handrail offset + truss width" />
         <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Cross Girder Level (mm)" value={input.cgLevel} onChange={(v) => set('cgLevel', v)} min={-600} max={600} step={5} title="Top of the cross girders relative to the top of the bottom chord: positive raises them, negative drops them. Offset cross girders are connected to the bottom chord nodes by rigid links." />
+          <NumberField label="Cross Girder Level (mm)" value={input.cgLevel} onChange={(v) => set('cgLevel', v)} min={-600} max={600} step={5} title="Top of the cross girders relative to the top of the bottom chord: positive raises them, negative drops them. Their underside may not be below the underside of the bottom chord. Within the bottom chord depth they are connected to the bottom chord nodes by rigid links; raised above it (Pratt and Howe only, cross girders no wider than the verticals) they connect to the verticals at their own level." />
           <SelectField
             label="Plan Bracing"
             value={input.bracing}
@@ -103,12 +102,6 @@ export const InputPanels: React.FC<{
             ]}
           />
         </div>
-        <Check checked={input.webPinned} onChange={(v) => set('webPinned', v)} title="Diagonals with bending released at both ends. Verticals stay moment connected (U-frames).">
-          Pinned Diagonal Ends
-        </Check>
-        <Check checked={input.bracingPinned} onChange={(v) => set('bracingPinned', v)}>
-          Pinned Plan Bracing Ends
-        </Check>
       </section>
 
       {/* ---------------------------------------------------------------- deck and furniture */}
@@ -348,6 +341,16 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
           ]}
         />
       </div>
+      {group === 'diagonal' && input.trussType !== 'warren' && (
+        <Check checked={input.webPinned} onChange={(v) => set('webPinned', v)} title="Diagonals with bending released at both ends. Verticals stay moment connected (U-frames).">
+          Pinned Ends
+        </Check>
+      )}
+      {group === 'bracing' && (
+        <Check checked={input.bracingPinned} onChange={(v) => set('bracingPinned', v)} title="Plan bracing with bending released at both ends">
+          Pinned Ends
+        </Check>
+      )}
     </div>
   );
 };

@@ -17,7 +17,7 @@ export const FINISH: Record<Finish, { colour: string; metalness: number; roughne
 export interface BridgeObjects {
   root: THREE.Group;
   members: Map<number, THREE.Mesh>;
-  /** Steel details that are not members (cross girder end plates, bracing gussets): ghosted with the members. */
+  /** Steel details that are not members (bracing gussets): ghosted with the members. */
   details: THREE.Mesh[];
   furniture: THREE.Group; // deck, kerbs, handrails, screens
   context: THREE.Group; // bearings, abutments, ground
@@ -83,18 +83,6 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     mesh.userData.memberId = m.id;
     members.set(m.id, mesh);
   }
-
-  // cross girder end plates at the chord or web member faces
-  const cg = model.members.find((m) => m.group === 'crossGirder')!;
-  const cgW = (input.sections.crossGirder.rotate ? cg.sp.d : cg.sp.b) / 1000;
-  const [cgCut] = memberCuts(model, cg);
-  const yPlate = Math.abs(cgCut?.p[1] ?? geo.s / 2 - geo.wBC / 2);
-  if (geo.cgTop > -geo.dBC / 2 + 1e-6)
-    for (let k = 0; k <= geo.n; k++)
-      for (const sg of [-1, 1]) {
-        const y = sg * yPlate;
-        details.push(add(membersGroup, boxBetween(k * geo.a - cgW / 2 - 0.01, k * geo.a + cgW / 2 + 0.01, y - sg * 0.016, y, geo.zCG - geo.dCG / 2 - 0.01, geo.cgTop), steel));
-      }
 
   // plan bracing gussets under the cross girder ends, on top of the bracing
   if (input.bracing !== 'none') {
@@ -177,8 +165,6 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
         .filter((m) => Math.sign(m.a[1]) === sg && (m.a[2] - zr) * (m.b[2] - zr) <= 0 && m.a[2] !== m.b[2])
         .map((m) => m.a[0] + ((zr - m.a[2]) / (m.b[2] - m.a[2])) * (m.b[0] - m.a[0]))
         .sort((p, q) => p - q);
-      xs.push(0.04, geo.L - 0.04);
-      xs.sort((p, q) => p - q);
       add(furniture, rod([0, y, zr], [geo.L, y, zr], rail), steel);
       for (const x of xs) {
         const yFace = sg * yFaceAbs;
@@ -213,14 +199,13 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
         add(furniture, boxBetween(xa - 0.04, xa, yScr - 0.003, yScr + 0.003, zb, zt), frameMat);
         add(furniture, boxBetween(xb, xb + 0.04, yScr - 0.003, yScr + 0.003, zb, zt), frameMat);
       }
-      // screen posts: full height from the deck at the bridge ends and wherever there is no vertical (Warren),
-      // and above the top chord on the verticals when the screen is higher than the chord
+      // screen posts only as extensions of the verticals above the top chord, when the screen is higher than the
+      // chord: the screens and handrails are otherwise carried by the truss members alone
       const post = new THREE.Shape(roundedRect(75, 75, 6).map(([u, v]) => new THREE.Vector2(u / 1000, v / 1000)));
       for (const x of xsPost) {
         const end = x < 1e-6 || x > geo.L - 1e-6;
-        const full = end || !geo.verticals;
-        if (!full && !above) continue;
-        const z0p = full ? geo.deckTop : tcSoffit;
+        if (end || !geo.verticals || !above) continue;
+        const z0p = tcSoffit;
         const g = new THREE.ExtrudeGeometry(post, { depth: zt - z0p, bevelEnabled: false, curveSegments: 4 });
         g.translate(Math.min(Math.max(x, 0.04), geo.L - 0.04), yScr - sg * 0.045, z0p);
         add(furniture, g, steel);

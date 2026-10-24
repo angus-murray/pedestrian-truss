@@ -557,7 +557,9 @@ export function uFrameLength(model: BridgeModel): { le: number; delta: number; d
   const I1 = (secs[web.group].rotate ? web.sp.Iy : web.sp.Ix) * 1e-12;
   const I2 = (input.sections.crossGirder.rotate ? cg.sp.Iy : cg.sp.Ix) * 1e-12;
   const Ic = (input.sections.topChord.rotate ? tc.sp.Ix : tc.sp.Iy) * 1e-12;
-  const d1 = geo.H, d2 = geo.H;
+  // node to node: from the cross girder connection (the bottom chord node, or the vertical where the cross girders
+  // are raised onto the verticals) to the top chord node
+  const d1 = geo.H - (geo.cgOnVerticals ? geo.zCG : 0), d2 = d1;
   const f = jointFlex(input) / 1000; // rad/kNm
   let delta: number, Ld: number | null = null;
   if (warren) {

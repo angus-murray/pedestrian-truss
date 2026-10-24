@@ -7,7 +7,7 @@
 import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './types';
 
 /** Version of the saved input format. 1: files without a version (before migrations were recorded). */
-export const FILE_VERSION = 2;
+export const FILE_VERSION = 3;
 
 export interface LoadedInput {
   input: BridgeInput;
@@ -41,6 +41,15 @@ export function loadInput(raw: Partial<BridgeInput> & { fileVersion?: number }):
   const notes: string[] = [];
   const version = raw.fileVersion ?? 1;
   const { fileVersion: _v, ...x } = raw; // eslint-disable-line @typescript-eslint/no-unused-vars
+
+  // version 2 → 3: a number of panels instead of a panel length target (the same panels as before)
+  const legacy = raw as { panelTarget?: number };
+  if (x.panels === undefined && legacy.panelTarget !== undefined) {
+    const span = x.span ?? DEFAULT_INPUT.span;
+    x.panels = 2 * Math.max(2, Math.round(span / (2 * Math.max(0.5, legacy.panelTarget))));
+    notes.push(`The panel length target of ${legacy.panelTarget} m was replaced by the number of panels it gave (${x.panels}).`);
+  }
+  delete (x as { panelTarget?: number }).panelTarget;
 
   // inputs added since the file was saved take their defaults
   for (const k of Object.keys(DEFAULT_INPUT) as (keyof BridgeInput)[])

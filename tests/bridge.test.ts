@@ -210,3 +210,21 @@ test('loading saved inputs: versioned migrations, each change reported', async (
   assert.equal(v1.input.maxSlenderness, 300);
   assert.ok(v1.notes.some((n) => n.startsWith('Maximum slenderness L/r')));
 });
+
+test('cross girder level: limits, and raised cross girders connected to the verticals', async () => {
+  const { buildModel, cgLevelError } = await import('../src/model/build');
+  // default: 200 deep cross girders, 250 deep bottom chords: the lowest level is −50 mm
+  assert.equal(cgLevelError({ ...DEFAULT_INPUT, cgLevel: -50 }), null);
+  assert.match(cgLevelError({ ...DEFAULT_INPUT, cgLevel: -60 }) ?? '', /dropped below the underside/);
+  assert.match(cgLevelError({ ...DEFAULT_INPUT, cgLevel: 100, trussType: 'warren' }) ?? '', /Warren/);
+  // raised 200 mm on 200 wide verticals: the cross girder ends are nodes of the verticals (no rigid links there)
+  const m = buildModel({ ...DEFAULT_INPUT, cgLevel: 200 });
+  assert.equal(m.errors.length, 0);
+  assert.ok(m.geo.cgOnVerticals);
+  const cg = m.members.find((x) => x.name === 'CG3')!;
+  const v = m.members.find((x) => x.name === 'V3A')!;
+  assert.ok(v.nodes.includes(cg.nodes[0]) || v.nodes.includes(cg.nodes[cg.nodes.length - 1]));
+  // a cross girder wider than the verticals cannot be raised above the bottom chord
+  const wide = { ...DEFAULT_INPUT, cgLevel: 100, sections: { ...DEFAULT_INPUT.sections, crossGirder: { ...DEFAULT_INPUT.sections.crossGirder, name: '250×250×9.0 SHS' } } };
+  assert.match(cgLevelError(wide) ?? '', /wider than the verticals/);
+});

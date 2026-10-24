@@ -314,7 +314,7 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     ['Truss depth h (centroids)', `${f2(input.depth)} m`],
     ['Clear width', `${f2(input.clearWidth)} m`],
     ['Handrail offset', `${f0(input.handrailWidth)} mm`],
-    ['Chord width', `${f0(geo.chordWidth * 1000)} mm`],
+    ['Truss width', `${f0(geo.trussWidth * 1000)} mm`],
     ['Truss spacing s', `${geo.s.toFixed(3)} m`],
     ['Cross girder top above chord top', `${f0(input.cgLevel)} mm`],
     ['Plan bracing', input.bracing === 'x' ? 'X-bracing' : input.bracing === 'single' ? 'Single diagonals' : 'None'],

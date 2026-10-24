@@ -56,7 +56,7 @@ export interface BridgeInput {
   // geometry
   span: number; // m, centre to centre of bearings
   trussType: TrussType;
-  panelTarget: number; // m
+  panels: number; // number of panels (even)
   depth: number; // m, centroid of bottom chord to centroid of top chord
   clearWidth: number; // m, between handrails
   handrailWidth: number; // mm, handrail offset: inside face of truss to inside face of handrail
@@ -174,7 +174,7 @@ export const SUPERSEDED_COMBOS: [Combination, Combination][] = [
 export const DEFAULT_INPUT: BridgeInput = {
   span: 30,
   trussType: 'pratt',
-  panelTarget: 2.5,
+  panels: 12,
   depth: 1.9,
   clearWidth: 3.0,
   handrailWidth: 100,

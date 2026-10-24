@@ -13,7 +13,7 @@
 import { sectionProps } from '../design/section';
 import { sectionsOf } from '../data/sections';
 import { designMember, runAnalysis } from './analysis';
-import { effectiveSections, stringerFitError, transverseWidth } from './build';
+import { cgLevelError, effectiveSections, stringerFitError, transverseWidth } from './build';
 
 const isChord = (g: GroupKey) => g === 'topChord' || g === 'bottomChord';
 const isWeb = (g: GroupKey) => g === 'vertical' || g === 'diagonal';
@@ -141,6 +141,8 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
         const width = transverseWidth({ ...spec, name: c.name }, chord ? 'chord' : 'web');
         // narrower chords bring the trusses closer: the stringers must still be on the cross girders
         if ((g === 'topChord' || g === 'bottomChord') && stringerFitError(cur, { ...next, [g]: { ...spec, name: c.name } })) continue;
+        // the cross girders must stay within the bottom chord depth (or on verticals at least as wide, when raised)
+        if ((g === 'bottomChord' || g === 'crossGirder' || g === 'vertical' || g === 'topChord') && cgLevelError(cur, { ...next, [g]: { ...spec, name: c.name } }) && !cgLevelError(cur, next)) continue;
         const scale = { major: sp.Ix / old.Ix, minor: sp.Iy / old.Iy };
         let u = 0, why = 'strength';
         const bump = (v: number, w: string) => {
@@ -272,7 +274,7 @@ function trim(input: BridgeInput, analysed: ReturnType<typeof runAnalysis> | nul
       if (tries >= TRIM_TRIES) break;
       const sections = { ...cur.sections, [g]: { ...spec, name: c.name } };
       const trial = { ...cur, sections };
-      if (stringerFitError(trial) || (!proportionsOk(trial) && proportionsOk(cur)) || (!chordOrderOk(sections) && chordOrderOk(cur.sections))) continue;
+      if (stringerFitError(trial) || (cgLevelError(trial) && !cgLevelError(cur)) || (!proportionsOk(trial) && proportionsOk(cur)) || (!chordOrderOk(sections) && chordOrderOk(cur.sections))) continue;
       tries++;
       progress(`Refining: ${groupLabel(g)} ${c.name}`);
       const r = runAnalysis(trial);
