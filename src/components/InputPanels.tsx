@@ -215,6 +215,9 @@ export const InputPanels: React.FC<{
         <SelectField label="Steel Finish" value={input.finish} onChange={(v) => set('finish', v as Finish)} options={(Object.keys(FINISH) as Finish[]).map((k) => ({ value: k, label: FINISH[k].label }))} />
       </Fold>
 
+      {/* ---------------------------------------------------------------- loads */}
+      <LoadsPanel input={input} set={set} model={model} />
+
       {/* ---------------------------------------------------------------- sections */}
       <Fold id="sections" title="Sections" hint="Section depth direction: the direction of the section depth (d) in the bridge.">
         {GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'diagonal' || input.trussType !== 'vierendeel'))
@@ -231,6 +234,9 @@ export const InputPanels: React.FC<{
           )}
         <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
       </Fold>
+
+      {/* ---------------------------------------------------------------- design */}
+      <DesignPanel input={input} set={set} model={model} results={results} />
 
       {/* ---------------------------------------------------------------- optimiser */}
       <Fold id="optimiser" title="Optimiser" hint="Refines the section sizes, keeping the geometry, loads, section types and grades">
@@ -287,12 +293,6 @@ export const InputPanels: React.FC<{
           Optimise Sections ({input.optimiseTarget}% Target)
         </button>
       </Fold>
-
-      {/* ---------------------------------------------------------------- loads */}
-      <LoadsPanel input={input} set={set} model={model} />
-
-      {/* ---------------------------------------------------------------- design */}
-      <DesignPanel input={input} set={set} model={model} results={results} />
     </>
   );
 };
