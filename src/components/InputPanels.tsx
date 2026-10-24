@@ -235,8 +235,15 @@ export const InputPanels: React.FC<{
             )
           )}
         <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
+      </section>
+
+      {/* ---------------------------------------------------------------- optimiser */}
+      <section className="panel">
+        <h2 className="panel-title" title="Refines the section sizes, keeping the geometry, loads, section types and grades">
+          Optimiser
+        </h2>
         <NumberField
-          label="Optimiser Target Utilisation (%)"
+          label="Target Utilisation (%)"
           value={input.optimiseTarget}
           onChange={(v) => set('optimiseTarget', v)}
           min={50}
@@ -246,7 +253,7 @@ export const InputPanels: React.FC<{
         />
         <div>
           <SelectField
-            label="Optimiser Preference"
+            label="Preference"
             value={input.optimiseCompact ? 'compact' : 'mass'}
             onChange={(v) => set('optimiseCompact', v === 'compact')}
             options={[
@@ -287,31 +294,6 @@ export const InputPanels: React.FC<{
           <Wand2 className="w-3.5 h-3.5" />
           Optimise Sections ({input.optimiseTarget}% Target)
         </button>
-        {optimiseLog && (
-          <>
-            <Readout
-              label="Last Optimisation"
-              value={`${optimiseLog.log.filter((l) => l.includes('→')).length} changes`}
-              title={optimiseLog.log.join('\n')}
-            />
-            {optimiseLog.log
-              .filter((l) => l.startsWith('Before optimising') || l.startsWith('Not optimised'))
-              .map((l) => (
-                <p key={l} className={`text-[11px] leading-snug ${l.startsWith('Not') ? 'text-amber-800' : 'text-slate-500'}`}>
-                  {l}
-                </p>
-              ))}
-            {Object.keys(optimiseLog.governs).length > 0 && (
-              <p className="text-[11px] text-slate-500 leading-snug">
-                Sizes set by:{' '}
-                {GROUPS.filter((g) => optimiseLog.governs[g])
-                  .map((g) => `${GROUP_INFO[g].label} ${optimiseLog.governs[g]}`)
-                  .join('; ')}
-                .
-              </p>
-            )}
-          </>
-        )}
       </section>
 
       {/* ---------------------------------------------------------------- loads */}
