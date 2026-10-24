@@ -102,6 +102,30 @@ export const InputPanels: React.FC<{
             ]}
           />
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label="Stringers"
+            value={input.stringerCount}
+            onChange={(v) => set('stringerCount', Math.max(0, Math.round(v)))}
+            min={0}
+            max={12}
+            step={1}
+            title="Longitudinal stringers simply supported on the cross girders, carrying the deck and pedestrian load by tributary width. They take no axial force from the chords. With none, the deck spans along the bridge between the cross girders."
+          />
+          {input.stringerCount > 0 ? (
+            <NumberField label="Stringer Spacing (m)" value={input.stringerSpacing} onChange={(v) => set('stringerSpacing', v)} min={0.2} max={3} step={0.05} decimals={2} />
+          ) : (
+            <NumberField label="Stringer Spacing (m)" value={undefined} onChange={() => {}} disabled disabledText="–" />
+          )}
+        </div>
+        <Check
+          checked={input.stringerCount > 0 && input.chordsSupportDeck}
+          disabled={input.stringerCount === 0}
+          onChange={(v) => set('chordsSupportDeck', v)}
+          title="With stringers, the deck spans across the bridge and also bears on the bottom chords, which then carry the width halfway to the outer stringers. Without stringers the deck spans along the bridge between the cross girders."
+        >
+          Bottom Chords Support Deck
+        </Check>
       </section>
 
       {/* ---------------------------------------------------------------- deck and furniture */}
@@ -129,30 +153,6 @@ export const InputPanels: React.FC<{
             <Readout label="Deck Weight" value={`${((input.deckThickness / 1000) * input.deckDensity).toFixed(2)} kPa`} />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField
-            label="Stringers"
-            value={input.stringerCount}
-            onChange={(v) => set('stringerCount', Math.max(0, Math.round(v)))}
-            min={0}
-            max={12}
-            step={1}
-            title="Longitudinal stringers simply supported on the cross girders, carrying the deck and pedestrian load by tributary width. They take no axial force from the chords. With none, the deck spans between the bottom chords."
-          />
-          {input.stringerCount > 0 ? (
-            <NumberField label="Stringer Spacing (m)" value={input.stringerSpacing} onChange={(v) => set('stringerSpacing', v)} min={0.2} max={3} step={0.05} decimals={2} />
-          ) : (
-            <NumberField label="Stringer Spacing (m)" value={undefined} onChange={() => {}} disabled disabledText="–" />
-          )}
-        </div>
-        <Check
-          checked={input.stringerCount > 0 && input.chordsSupportDeck}
-          disabled={input.stringerCount === 0}
-          onChange={(v) => set('chordsSupportDeck', v)}
-          title="With stringers, the deck spans across the bridge and also bears on the bottom chords, which then carry the width halfway to the outer stringers. Without stringers the deck spans along the bridge between the cross girders."
-        >
-          Bottom Chords Support Deck
-        </Check>
         <Readout
           label="Deck Span (Max)"
           value={`${deckSpan(model).toFixed(3)} m`}
@@ -219,7 +219,7 @@ export const InputPanels: React.FC<{
           step={5}
           title="The optimiser selects the lightest section of each group with a strength utilisation of at most this; deflection and vibration are kept within their limits"
         />
-        <div className="grid grid-cols-2 gap-2">
+        <div>
           <SelectField
             label="Optimiser Preference"
             value={input.optimiseCompact ? 'compact' : 'mass'}
@@ -229,6 +229,8 @@ export const InputPanels: React.FC<{
               { value: 'mass', label: 'Least Mass' }
             ]}
           />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           <NumberField
             label="Min Web / Chord Width"
             value={input.minWebRatio}
@@ -237,7 +239,17 @@ export const InputPanels: React.FC<{
             max={1}
             step={0.05}
             decimals={2}
-            title="The optimiser keeps the verticals and diagonals at least this fraction of the chord width across the bridge (and no wider than the chords), so that the members stay proportionate"
+            title="The optimiser keeps the verticals and diagonals at least this fraction of the width of the wider chord across the bridge, so that the members stay proportionate"
+          />
+          <NumberField
+            label="Max Web / Chord Width"
+            value={input.maxWebRatio}
+            onChange={(v) => set('maxWebRatio', v)}
+            min={0}
+            max={1}
+            step={0.05}
+            decimals={2}
+            title="The optimiser keeps the verticals and diagonals at most this fraction of the width of the narrower chord across the bridge"
           />
         </div>
         <button

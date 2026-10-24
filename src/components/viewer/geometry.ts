@@ -122,21 +122,23 @@ export function rod(a: Vec3, b: Vec3, r: number, seg = 16): THREE.BufferGeometry
 export function memberCuts(model: BridgeModel, m: Member): [CutPlane | null, CutPlane | null] {
   const { geo } = model;
   const zTopFace = geo.H - geo.dTC / 2, zBotFace = geo.dBC / 2;
+  const tcRound = model.input.sections.topChord.category === 'CHS', bcRound = model.input.sections.bottomChord.category === 'CHS';
   const web = m.group === 'vertical' || m.group === 'diagonal' || m.group === 'endPost';
   const webHalfY = webHalfWidth(model);
   const endCut = (p: Vec3): CutPlane | null => {
     const knee = kneeCut(model, m, p);
     if (knee) return knee;
     if (web) {
-      if (Math.abs(p[2] - geo.H) < 1e-6) return { p: [0, 0, zTopFace], n: [0, 0, 1] };
-      if (Math.abs(p[2]) < 1e-6) return { p: [0, 0, zBotFace], n: [0, 0, 1] };
+      // to the flat face of a box chord; into a round (CHS) chord up to the node, the overlap hidden inside it
+      if (Math.abs(p[2] - geo.H) < 1e-6) return { p: [0, 0, tcRound ? geo.H : zTopFace], n: [0, 0, 1] };
+      if (Math.abs(p[2]) < 1e-6) return { p: [0, 0, bcRound ? 0 : zBotFace], n: [0, 0, 1] };
     }
     if (m.group === 'crossGirder') {
       const cgBottom = geo.zCG - geo.dCG / 2;
       // below the chord: to its outer face; level with it: to its inner face; above it: to the web members
       const vert = model.members.find((x) => x.group === 'vertical');
       const vHalf = vert ? (model.input.sections.vertical.rotate ? vert.sp.b : vert.sp.d) / 2000 : webHalfY;
-      const y = geo.cgOnVerticals && geo.cgTop > geo.dBC / 2 + 1e-6 ? geo.s / 2 - vHalf : cgBottom >= geo.dBC / 2 - 1e-6 ? geo.s / 2 - webHalfY : geo.cgTop <= -geo.dBC / 2 + 1e-6 ? geo.s / 2 + geo.wBC / 2 : geo.s / 2 - geo.wBC / 2;
+      const y = geo.cgOnVerticals && geo.cgTop > geo.dBC / 2 + 1e-6 ? geo.s / 2 - vHalf : bcRound && geo.cgTop > -geo.dBC / 2 + 1e-6 && cgBottom < geo.dBC / 2 - 1e-6 ? geo.s / 2 : cgBottom >= geo.dBC / 2 - 1e-6 ? geo.s / 2 - webHalfY : geo.cgTop <= -geo.dBC / 2 + 1e-6 ? geo.s / 2 + geo.wBC / 2 : geo.s / 2 - geo.wBC / 2;
       return { p: [0, y * Math.sign(p[1]), 0], n: [0, 1, 0] };
     }
     if (m.group === 'bracing') {

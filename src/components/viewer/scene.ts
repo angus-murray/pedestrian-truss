@@ -2,6 +2,7 @@
  * The rendered bridge: structural members, deck, kerbs, handrails, screens, bearings and abutments.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BridgeModel } from '../../model/build';
 import type { Finish } from '../../model/types';
 import { boxBetween, chequerTexture, chordExtents, extrudeSection, gratingTexture, memberCuts, meshTexture, rod, speckleTexture, timberTexture, webHalfWidth } from './geometry';
@@ -134,11 +135,20 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
       add(furniture, g, [matTop, matSide] as unknown as THREE.Material);
     }
   } else if (input.deckType === 'timber') {
+    // boards spanning across the bridge (on the stringers), laid side by side along it, grain along each board
     const tex = keep(timberTexture());
-    tex.repeat.set(geo.a / 1.2, 1);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     const mat = keep(new THREE.MeshStandardMaterial({ color: '#ffffff', map: tex, roughness: 0.8 }));
     const bw = 0.14, gap = 0.008;
-    for (let y = -yIn; y < yIn - 1e-6; y += bw + gap) add(furniture, boxBetween(deckX0, deckX1, y, Math.min(yIn, y + bw), z0, z1), mat);
+    const boards: THREE.BufferGeometry[] = [];
+    for (let x = deckX0; x < deckX1 - 1e-6; x += bw + gap) {
+      const g = boxBetween(x, Math.min(deckX1, x + bw), -yIn, yIn, z0, z1);
+      const pos = g.attributes.position as THREE.BufferAttribute, uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getY(i) + x * 7.3) / 1.2, (pos.getX(i) - x + pos.getZ(i)) / 0.6);
+      boards.push(g);
+    }
+    add(furniture, mergeGeometries(boards), mat);
+    boards.forEach((g) => g.dispose());
   } else {
     const tex = keep(chequerTexture());
     tex.repeat.set(geo.L / 0.6, geo.deckWidth / 0.6);

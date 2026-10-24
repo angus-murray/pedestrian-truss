@@ -44,7 +44,7 @@ function chordOrderOk(sections: BridgeInput['sections']): boolean {
 }
 
 /**
- * The web members within the chord widths: no wider than the narrower chord, and at least minWebRatio × the wider
+ * The web members within the chord widths: at most maxWebRatio × the narrower chord, and at least minWebRatio × the wider
  * chord (a Warren truss has no verticals).
  */
 function proportionsOk(input: BridgeInput): boolean {
@@ -53,7 +53,7 @@ function proportionsOk(input: BridgeInput): boolean {
   const webs: GroupKey[] = input.trussType === 'warren' ? ['diagonal'] : ['vertical', 'diagonal'];
   return webs.every((g) => {
     const w = transverseWidth(s[g], 'web');
-    return w <= Math.min(wt, wb) + 1e-6 && w >= input.minWebRatio * Math.max(wt, wb) - 1e-6;
+    return w <= input.maxWebRatio * Math.min(wt, wb) + 1e-6 && w >= input.minWebRatio * Math.max(wt, wb) - 1e-6;
   });
 }
 import { GROUPS, type BridgeInput, type GroupKey, type GroupSection } from './types';
@@ -115,7 +115,8 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
     let changed = false;
     let webNeedNext = 0;
     for (const g of GROUPS) {
-      if (g === 'endPost' || held.has(g)) continue; // the end posts take the top chord section
+      // the end posts take the top chord section; held groups are revisited (upsizing only) when verifying
+      if (g === 'endPost' || (held.has(g) && !verifying)) continue;
       const members = model.members.filter((m) => m.group === g || (g === 'topChord' && m.group === 'endPost'));
       if (!members.length) continue;
       const spec = cur.sections[g];
@@ -167,7 +168,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
         if (g === 'bottomChord' && horizDefl > 0) bump(((horizDefl * old.A) / sp.A / SLS_MARGIN) * target, 'horizontal deflection');
         if (g === 'stringer' && stringerDefl > 0) bump(((stringerDefl * old.Ix) / sp.Ix / SLS_MARGIN) * target, 'stringer deflection');
         // chords no narrower than the web members need (a lighter chord that met the target otherwise is noted)
-        if (chord && width < webNeed - 1e-6) {
+        if (chord && width * cur.maxWebRatio < webNeed - 1e-6) {
           if (u <= target) widthSkipped = true;
           continue;
         }
@@ -175,7 +176,7 @@ export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, 
           // the width the chords need for this web group, whether or not the present chords provide it
           if (u <= target) narrowestOk = Math.min(narrowestOk, width);
           if (u < narrowestBest.u) narrowestBest = { w: width, u };
-          if (width > chordWidth + 1e-6 || width < cur.minWebRatio * chordWidthMax - 1e-6) continue;
+          if (width > cur.maxWebRatio * chordWidth + 1e-6 || width < cur.minWebRatio * chordWidthMax - 1e-6) continue;
         }
         if (u <= target) {
           if (chord && !chordOrderOk({ ...next, [g]: { ...spec, name: c.name } })) {

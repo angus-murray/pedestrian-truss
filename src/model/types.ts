@@ -113,6 +113,7 @@ export interface BridgeInput {
   optimiseTarget: number; // %, utilisation the section optimiser aims for
   optimiseCompact: boolean; // optimiser ranks sections by mass × outer width (compact) rather than by mass
   minWebRatio: number; // optimiser: web member width at least this × the chord width (0–1)
+  maxWebRatio: number; // optimiser: web member width at most this × the chord width (0–1)
   maxSlenderness: number; // L/r limit of the truss members (AISC 360-16 D1 User Note: 300); 0 = not checked
 }
 
@@ -138,7 +139,7 @@ export const DECK_INFO: Record<DeckType, { label: string; thickness: number; den
   concrete: { label: 'Concrete Slab (In Situ)', thickness: 150, density: 25 },
   precast: { label: 'Precast Concrete Planks', thickness: 125, density: 25 },
   frp: { label: 'FRP Mesh Grating', thickness: 38, density: 6.0 },
-  timber: { label: 'Timber Boards', thickness: 75, density: 9 },
+  timber: { label: 'Timber Boards', thickness: 75, density: 11 },
   steel: { label: 'Steel Plate', thickness: 10, density: 77 }
 };
 
@@ -244,6 +245,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   modalQ: 0,
   optimiseTarget: 90,
   optimiseCompact: true,
-  minWebRatio: 0.6,
+  minWebRatio: 0.5,
+  maxWebRatio: 0.9,
   maxSlenderness: 300
 };

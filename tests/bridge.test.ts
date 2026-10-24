@@ -156,7 +156,7 @@ test('optimiser keeps the section types and the web members within the chord wid
   for (const g of Object.keys(r.sections) as (keyof typeof r.sections)[]) assert.equal(r.sections[g].category, DEFAULT_INPUT.sections[g].category);
   const tc = transverseWidth(r.sections.topChord, 'chord'), bc = transverseWidth(r.sections.bottomChord, 'chord');
   for (const w of [transverseWidth(r.sections.vertical, 'web'), transverseWidth(r.sections.diagonal, 'web')]) {
-    assert.ok(w <= Math.min(tc, bc) + 1e-6, 'webs no wider than the chords');
+    assert.ok(w <= DEFAULT_INPUT.maxWebRatio * Math.min(tc, bc) + 1e-6, 'webs at most 0.9 of the chord width');
     assert.ok(w >= DEFAULT_INPUT.minWebRatio * Math.max(tc, bc) - 1e-6, 'webs proportionate to the chords');
   }
   // the top chord at least as large as the bottom chord
