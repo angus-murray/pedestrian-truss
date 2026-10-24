@@ -60,10 +60,7 @@ export const InputPanels: React.FC<{
   return (
     <>
       {/* ---------------------------------------------------------------- geometry */}
-      <section className="panel">
-        <h2 className="panel-title" title="Pony (half-through) truss: two parallel trusses with a deck on cross girders at the bottom chord panel points. The top chords are restrained laterally only by the U-frames formed by the verticals and cross girders.">
-          Geometry
-        </h2>
+      <Fold id="geometry" title="Geometry" hint="Pony (half-through) truss: two parallel trusses with a deck on cross girders at the bottom chord panel points. The top chords are restrained laterally only by the U-frames formed by the verticals and cross girders." open>
         <div className="grid grid-cols-2 gap-2">
           <NumberField label={<>Span <S s="L" /> (m)</>} value={input.span} onChange={(v) => set('span', v)} min={6} max={50} step={0.5} title="Centre to centre of bearings" />
           <NumberField label={<>Truss Depth <S s="h" /> (m)</>} value={input.depth} onChange={(v) => set('depth', v)} min={0.6} max={4} step={0.05} decimals={2} title="Centroid of the bottom chord to centroid of the top chord" />
@@ -130,11 +127,10 @@ export const InputPanels: React.FC<{
         >
           Bottom Chords Support Deck
         </Check>
-      </section>
+      </Fold>
 
       {/* ---------------------------------------------------------------- deck and furniture */}
-      <section className="panel">
-        <h2 className="panel-title">Deck &amp; Furniture</h2>
+      <Fold id="deck" title="Deck & Furniture">
         <div className="grid grid-cols-2 gap-2">
           <SelectField
             label="Deck"
@@ -217,11 +213,10 @@ export const InputPanels: React.FC<{
           </div>
         )}
         <SelectField label="Steel Finish" value={input.finish} onChange={(v) => set('finish', v as Finish)} options={(Object.keys(FINISH) as Finish[]).map((k) => ({ value: k, label: FINISH[k].label }))} />
-      </section>
+      </Fold>
 
       {/* ---------------------------------------------------------------- sections */}
-      <section className="panel">
-        <h2 className="panel-title" title="Section depth direction: the direction of the section depth (d) in the bridge.">Sections</h2>
+      <Fold id="sections" title="Sections" hint="Section depth direction: the direction of the section depth (d) in the bridge.">
         {GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'diagonal' || input.trussType !== 'vierendeel'))
           .filter((g) => g !== 'stringer' || input.stringerCount > 0)
           .map((g, i) =>
@@ -235,13 +230,10 @@ export const InputPanels: React.FC<{
             )
           )}
         <Readout label="Steel Mass (Incl. Connections)" value={`${model.steelMass.toFixed(2)} t`} />
-      </section>
+      </Fold>
 
       {/* ---------------------------------------------------------------- optimiser */}
-      <section className="panel">
-        <h2 className="panel-title" title="Refines the section sizes, keeping the geometry, loads, section types and grades">
-          Optimiser
-        </h2>
+      <Fold id="optimiser" title="Optimiser" hint="Refines the section sizes, keeping the geometry, loads, section types and grades">
         <NumberField
           label="Target Utilisation (%)"
           value={input.optimiseTarget}
@@ -294,7 +286,7 @@ export const InputPanels: React.FC<{
           <Wand2 className="w-3.5 h-3.5" />
           Optimise Sections ({input.optimiseTarget}% Target)
         </button>
-      </section>
+      </Fold>
 
       {/* ---------------------------------------------------------------- loads */}
       <LoadsPanel input={input} set={set} model={model} />
@@ -315,6 +307,37 @@ function deckSpan(model: BridgeModel): number {
   const overhang = model.geo.deckWidth / 2 - Math.max(...ys.map(Math.abs));
   return Math.max(span, overhang);
 }
+
+/** An input panel that folds to its title (click the title); the state is remembered in this browser. */
+const Fold: React.FC<{ id: string; title: string; hint?: string; open?: boolean; children: React.ReactNode }> = ({ id, title, hint, open = false, children }) => {
+  const key = `pedtruss-panel-${id}`;
+  const [isOpen, setOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? open : v === '1';
+    } catch {
+      return open;
+    }
+  });
+  const toggle = () =>
+    setOpen((o) => {
+      try {
+        localStorage.setItem(key, o ? '0' : '1');
+      } catch {
+        // storage blocked: not remembered
+      }
+      return !o;
+    });
+  return (
+    <section className={isOpen ? 'panel' : 'panel !py-2'}>
+      <button type="button" className="w-full flex items-center justify-between text-left" onClick={toggle} title={hint} aria-expanded={isOpen}>
+        <h2 className={`panel-title ${isOpen ? '' : '!mb-0 !pb-0 !border-0'}`}>{title}</h2>
+        <ChevronDown size={15} className={`text-slate-400 shrink-0 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+      </button>
+      {isOpen && children}
+    </section>
+  );
+};
 
 const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; first: boolean }> = ({ group, input, set, first }) => {
   const g = input.sections[group];
@@ -378,10 +401,7 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
 const LoadsPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }> = ({ input, set, model }) => {
   const [edit, setEdit] = useState(false);
   return (
-    <section className="panel">
-      <h2 className="panel-title" title="Load values and factors are inputs; confirm them against AS 5100.2 and the project requirements.">
-        Loads
-      </h2>
+    <Fold id="loads" title="Loads" hint="Load values and factors are inputs; confirm them against AS 5100.2 and the project requirements.">
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Pedestrian Load (kPa)" value={input.pedestrian} onChange={(v) => set('pedestrian', v)} min={0} max={20} step={0.5} decimals={1} title="On the clear width" />
         <NumberField label="Connections (% of Steel)" value={input.connectionAllowance} onChange={(v) => set('connectionAllowance', v)} min={0} max={30} step={1} />
@@ -414,7 +434,7 @@ const LoadsPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel }>
         </button>
       </div>
       {edit && <CombosDialog combos={input.combos} onChange={(c) => set('combos', c)} onClose={() => setEdit(false)} />}
-    </section>
+    </Fold>
   );
 };
 
@@ -568,10 +588,7 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
   };
   const rows = useMemo(() => GROUPS.filter((g) => (g !== 'vertical' || input.trussType !== 'warren') && (g !== 'diagonal' || input.trussType !== 'vierendeel') && (g !== 'stringer' || input.stringerCount > 0)), [input.trussType, input.stringerCount]);
   return (
-    <section className="panel">
-      <h2 className="panel-title" title="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">
-        Member Design
-      </h2>
+    <Fold id="memberdesign" title="Member Design" hint="Effective lengths for member compression capacity (AS 5100.6 Cl. 6.3.3): from the elastic buckling analysis (l_e = π√(EI/N_om), N_om = λ_c N*), as a factor on the member length, or for the top chord from the U-frame stiffness. k_LTB sets the segment length for lateral–torsional buckling.">
       <table className="w-full text-[11px] text-slate-600 border-separate border-spacing-y-1">
         <colgroup>
           <col style={{ width: '25%' }} />
@@ -703,6 +720,6 @@ const DesignPanel: React.FC<{ input: BridgeInput; set: Set; model: BridgeModel; 
           <NumberField label="Lateral Min (Hz)" value={input.freqLatMin} onChange={(v) => set('freqLatMin', v)} min={0} max={10} step={0.1} decimals={1} title="A lateral frequency below this needs special consideration (AS 5100.2 Cl. 13.4.1: 1.5 Hz)" />
         </div>
       </div>
-    </section>
+    </Fold>
   );
 };
