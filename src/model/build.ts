@@ -587,9 +587,9 @@ export function buildModel(input: BridgeInput): BridgeModel {
   const cgErr = cgLevelError(input);
   if (cgErr) errors.push(cgErr);
   const webWide = webWidthWarning(input);
-  if (webWide) warnings.push(webWide);
+  if (webWide) errors.push(webWide);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;
-  if (ang < 30 || ang > 65) warnings.push('Truss diagonal angles are outside typical limits.');
+  if (ang < 30 || ang > 65) errors.push('Truss diagonal angles are outside typical limits.');
 
   const geo: Geometry = {
     L, n, a, s, trussWidth: trussW, H, dTC, dBC, wTC, wBC, zCG, cgOnVerticals, dCG, cgTop, zST, dST, stringerYs, deckSoffit, deckTop, handrailHeights, deckShares, deckWidth,

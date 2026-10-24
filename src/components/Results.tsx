@@ -59,10 +59,13 @@ export const Results: React.FC<{
   const r = results;
   const sum = useMemo(() => (r && !r.errors.length ? summarise(model, r, input) : null), [model, r, input]);
   const warnings = [...model.warnings, ...(r?.warnings.filter((w) => !model.warnings.includes(w)) ?? []), ...(sum?.dynWarnings ?? [])];
+  // input warnings (which stop the analysis), then those of the analysis itself
+  const allWarnings = [...model.errors, ...(r?.errors ?? []), ...warnings];
   let chip: React.ReactNode;
-  if (solving) chip = <StatusChip kind="neutral">Solving…</StatusChip>;
+  if (model.errors.length) chip = <StatusChip kind="fail">Resolve the Warnings to Run the Analysis</StatusChip>;
+  else if (solving) chip = <StatusChip kind="neutral">Solving…</StatusChip>;
   else if (!r) chip = <StatusChip kind="neutral">{stale ? 'Inputs Changed — click Solve to update' : 'Not Solved — click Solve to run the analysis'}</StatusChip>;
-  else if (r.errors.length || !sum) chip = <StatusChip kind="fail">Analysis Error</StatusChip>;
+  else if (r.errors.length || !sum) chip = <StatusChip kind="fail">Not Solved: See Warnings</StatusChip>;
   else {
     const pass = !sum.failing.length && sum.deflOk && sum.vibOk;
     chip = pass ? (
@@ -79,10 +82,9 @@ export const Results: React.FC<{
     <>
       <section className="panel">
         <ResultsHeader>
-          {warnings.length > 0 && <StatusChip kind="warn">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</StatusChip>}
+          {allWarnings.length > 0 && <StatusChip kind="warn">{allWarnings.length} warning{allWarnings.length > 1 ? 's' : ''}</StatusChip>}
           {chip}
         </ResultsHeader>
-        {model.errors.length > 0 && <Banner kind="error" title="Input errors" items={model.errors} />}
         {error && (
           <Banner kind="error" title="Solver error">
             {error.message}
@@ -95,8 +97,7 @@ export const Results: React.FC<{
             )}
           </Banner>
         )}
-        {r && r.errors.length > 0 && <Banner kind="error" title="Analysis errors" items={r.errors} />}
-        {warnings.length > 0 && <Banner kind="warning" title="Warnings" items={warnings} />}
+        {allWarnings.length > 0 && <Banner kind="warning" title={model.errors.length ? 'Warnings (resolve these to run the analysis)' : 'Warnings'} items={allWarnings} />}
         {r && sum && (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
