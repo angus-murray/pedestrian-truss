@@ -11,6 +11,7 @@ import type { BridgeModel } from '../../model/build';
 import { comboLabel, bucklingLabel, type AnalysisResults } from '../../model/analysis';
 import { buildBridge, groundLevel, type BridgeObjects } from './scene';
 import { buildPeople } from './people';
+import { buildSky, type Sky } from './sky';
 import { axialColour, magnitudeColour, momentColour, utilColour, UTIL_LEGEND } from './colours';
 
 export type ViewMode = 'model' | 'util' | 'axial' | 'bending' | 'deflection' | 'buckling' | 'vibration';
@@ -74,6 +75,8 @@ export const Viewer3D: React.FC<{
     animate: ((t: number) => void) | null;
     /** First-person view: a pedestrian's eye on the deck. */
     eye: THREE.PerspectiveCamera;
+    sky: Sky;
+    hemi: THREE.HemisphereLight;
     fpv: { yaw: number; pitch: number; keys: Set<string>; last: number } | null;
   } | null>(null);
   const bridge = useRef<BridgeObjects | null>(null);
@@ -120,7 +123,10 @@ export const Viewer3D: React.FC<{
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.12;
-    scene.add(new THREE.HemisphereLight('#e8f0ff', '#8a8270', 1.1));
+    const hemi = new THREE.HemisphereLight('#e8f0ff', '#8a8270', 1.1);
+    scene.add(hemi);
+    const sky = buildSky();
+    scene.add(sky.group);
     const sun = new THREE.DirectionalLight('#fff6e8', 2.2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096);
@@ -136,7 +142,7 @@ export const Viewer3D: React.FC<{
     // a pedestrian's eye: 60° vertical field of view, close to the natural field of view on a screen
     const eye = new THREE.PerspectiveCamera(60, 1, 0.05, 2000);
     eye.up.set(0, 0, 1);
-    three.current = { renderer, scene, camera, persp: camera, ortho, orthoHalf: 20, controls, sun, ground, overlay, lineMats, animate: null, eye, fpv: null };
+    three.current = { renderer, scene, camera, persp: camera, ortho, orthoHalf: 20, controls, sun, ground, overlay, lineMats, animate: null, eye, fpv: null, sky, hemi };
     const resize = () => {
       const w = el.clientWidth, h = el.clientHeight;
       if (!w || !h) return;
@@ -161,7 +167,11 @@ export const Viewer3D: React.FC<{
       if (t?.fpv) walk(t, time / 1000);
       else controls.update();
       t?.animate?.(time / 1000);
-      if (t) renderer.render(scene, t.camera);
+      if (t) {
+        // the sky dome travels with the camera
+        t.sky.group.position.copy(t.camera.position);
+        renderer.render(scene, t.camera);
+      }
     });
     return () => {
       ro.disconnect();
@@ -179,8 +189,18 @@ export const Viewer3D: React.FC<{
   useEffect(() => {
     const t = three.current;
     if (!t) return;
-    t.scene.background = new THREE.Color(theme === 'dark' ? '#1e2228' : '#f8fafc');
-    (t.ground.material as THREE.MeshStandardMaterial).color.set(theme === 'dark' ? '#2b302b' : '#dfe3d6');
+    const night = theme === 'dark';
+    t.scene.background = new THREE.Color(night ? '#0b1220' : '#e3f1fb');
+    t.sky.setNight(night);
+    (t.ground.material as THREE.MeshStandardMaterial).color.set(night ? '#1c241d' : '#cfd9c2');
+    // moonlight: dim and cool; daylight: bright and warm
+    t.sun.color.set(night ? '#9db3ff' : '#fff6e8');
+    t.sun.intensity = night ? 0.35 : 2.2;
+    t.hemi.color.set(night ? '#4a5a80' : '#e8f0ff');
+    t.hemi.groundColor.set(night ? '#151a14' : '#8a8270');
+    t.hemi.intensity = night ? 0.45 : 1.1;
+    t.scene.environmentIntensity = night ? 0.12 : 0.55;
+    if (bridge.current) bridge.current.setNight(night);
   }, [theme]);
 
   // ---------------------------------------------------------------- first-person view
@@ -288,6 +308,7 @@ export const Viewer3D: React.FC<{
     if (bridge.current) t.scene.remove(bridge.current.root);
     const b = buildBridge(model);
     bridge.current = b;
+    b.setNight(theme === 'dark');
     t.scene.add(b.root);
     if (people.current) {
       t.scene.remove(people.current);
@@ -299,6 +320,7 @@ export const Viewer3D: React.FC<{
     const { geo } = model;
     t.ground.position.set(geo.L / 2, 0, groundLevel(model) - 0.005);
     t.sun.position.set(geo.L / 2 - 12, -18, 30);
+    t.sky.setDirection(new THREE.Vector3(-12, -18, 30));
     t.sun.target.position.set(geo.L / 2, 0, 0);
     const sc = t.sun.shadow.camera;
     const half = geo.L / 2 + 12;

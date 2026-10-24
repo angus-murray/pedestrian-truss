@@ -23,6 +23,8 @@ export interface BridgeObjects {
   furniture: THREE.Group; // deck, kerbs, handrails, screens
   context: THREE.Group; // bearings, abutments, ground
   steel: THREE.MeshStandardMaterial;
+  /** Night-time scene: in-rail lights on, darker water. */
+  setNight: (night: boolean) => void;
   dispose: () => void;
 }
 
@@ -279,6 +281,85 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     g.translate(0, halfW + 3, 0);
     add(context, g, emb, false);
   }
+  // ------------------------------------------------------------ a stream meandering under the bridge
+  const zG = zGround + 0.02;
+  const amp = Math.max(1, Math.min(4, geo.L / 2 - 9));
+  const centre = (y: number) => geo.L / 2 + amp * Math.sin(y / 9 + 0.6) + 0.35 * amp * Math.sin(y / 3.7);
+  const ribbon = (half: (y: number) => number, z: number) => {
+    const pts: number[] = [], idx: number[] = [];
+    const ys = Array.from({ length: 241 }, (_, i) => -120 + i);
+    ys.forEach((y, i) => {
+      const dx = (centre(y + 0.5) - centre(y - 0.5)) / 1; // tangent (dx/dy)
+      const nl = Math.hypot(1, dx), nx = 1 / nl, ny = -dx / nl; // normal in plan
+      const h = half(y), c = centre(y);
+      pts.push(c - nx * h, y - ny * h, z, c + nx * h, y + ny * h, z);
+      if (i) idx.push(2 * i - 2, 2 * i - 1, 2 * i, 2 * i - 1, 2 * i + 1, 2 * i);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  };
+  const width = (y: number) => 1.3 + 0.35 * Math.sin(y / 5.3) + 0.2 * Math.sin(y / 2.1);
+  const bankMat = keep(new THREE.MeshStandardMaterial({ color: '#9c9471', roughness: 1, side: THREE.DoubleSide }));
+  add(context, ribbon((y) => width(y) + 0.7, zG), bankMat, false);
+  const water = keep(new THREE.MeshStandardMaterial({ color: '#69aed6', roughness: 0.08, metalness: 0.2, side: THREE.DoubleSide }));
+  add(context, ribbon(width, zG + 0.01), water, false);
+
+  // ------------------------------------------------------------ in-rail lighting (night): LED fittings under the top
+  // rail at regular intervals, and the pools of light they cast on the deck
+  const nightLights = new THREE.Group();
+  nightLights.visible = false;
+  furniture.add(nightLights); // with the deck and handrails
+  const zr = geo.deckTop + geo.handrailHeights[geo.handrailHeights.length - 1];
+  const step = 1.25;
+  const leds: THREE.BufferGeometry[] = [], pools: THREE.BufferGeometry[] = [];
+  for (const sg of [-1, 1])
+    for (let x = step / 2; x < geo.L; x += step) {
+      const yR = sg * (geo.clearWidth / 2 + 0.0483 / 2);
+      leds.push(boxBetween(x - 0.05, x + 0.05, yR - 0.012, yR + 0.012, zr - 0.0483 / 2 - 0.006, zr - 0.0483 / 2 + 0.002));
+      const p = new THREE.PlaneGeometry(1.7, 1.5);
+      p.translate(x, sg * (geo.clearWidth / 2 - 0.45), geo.deckTop + 0.012);
+      pools.push(p);
+    }
+  const ledMat = keep(new THREE.MeshBasicMaterial({ color: '#fff3cf' }));
+  const poolTex = keep(
+    (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d')!;
+      const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grd.addColorStop(0, 'rgba(255,214,150,0.85)');
+      grd.addColorStop(0.45, 'rgba(255,196,120,0.35)');
+      grd.addColorStop(1, 'rgba(255,190,110,0)');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })()
+  );
+  const poolMat = keep(new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  if (leds.length) {
+    const lg = keep(mergeGeometries(leds));
+    const pg = keep(mergeGeometries(pools));
+    leds.forEach((g) => g.dispose());
+    pools.forEach((g) => g.dispose());
+    nightLights.add(new THREE.Mesh(lg, ledMat));
+    const pm = new THREE.Mesh(pg, poolMat);
+    pm.renderOrder = 2;
+    nightLights.add(pm);
+    // a few real lights along the deck so that the members and screens near the rails pick up the light too
+    const nL = Math.max(2, Math.round(geo.L / 8));
+    for (let i = 0; i < nL; i++)
+      for (const sg of [-1, 1]) {
+        const l = new THREE.PointLight('#ffd49a', 1.2, 7, 2);
+        l.position.set(((i + 0.5) * geo.L) / nL, sg * (geo.clearWidth / 2 - 0.2), zr - 0.3);
+        nightLights.add(l);
+      }
+  }
+
   return {
     root,
     members,
@@ -286,6 +367,11 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
     furniture,
     context,
     steel,
+    setNight: (night: boolean) => {
+      nightLights.visible = night;
+      water.color.set(night ? '#1c3550' : '#69aed6');
+      bankMat.color.set(night ? '#3a3a2f' : '#9c9471');
+    },
     dispose: () => disposables.forEach((d) => d.dispose())
   };
 }
