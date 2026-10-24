@@ -234,6 +234,23 @@ export function meshTexture(colour: string) {
   });
 }
 
+/** Perforated plate: a regular square pattern of round holes (transparent) in a plate. */
+export function perforatedTexture(colour: string) {
+  return canvasTexture(256, (c, s) => {
+    c.fillStyle = colour;
+    c.fillRect(0, 0, s, s);
+    c.globalCompositeOperation = 'destination-out';
+    const n = 8, p = s / n, r = p * 0.34;
+    for (let i = 0; i < n; i++)
+      for (let j = 0; j < n; j++) {
+        c.beginPath();
+        c.arc((i + 0.5) * p, (j + 0.5) * p, r, 0, Math.PI * 2);
+        c.fill();
+      }
+    c.globalCompositeOperation = 'source-over';
+  });
+}
+
 /** Fine speckle for concrete and grit surfaces. */
 export function speckleTexture(base: string, dots: string[], density = 0.06) {
   return canvasTexture(512, (c, s) => {

@@ -16,6 +16,9 @@ import {
   type Finish,
   type GroupKey,
   type JointModel,
+  type RailFinish,
+  type ScreenType,
+  SCREEN_INFO,
   type AsJoint,
   AS5100_JOINT_FLEX,
   type LeMethod,
@@ -179,16 +182,37 @@ export const InputPanels: React.FC<{
           )}
         </div>
         <NumberField label="Handrail Weight (kN/m per Rail)" value={input.handrailLoad} onChange={(v) => set('handrailLoad', v)} min={0} max={2} step={0.05} decimals={2} />
+        <SelectField
+          label="Handrail Finish"
+          value={input.railFinish}
+          onChange={(v) => set('railFinish', v as RailFinish)}
+          options={[
+            { value: 'galvanised', label: 'Galvanised' },
+            { value: 'stainless', label: 'Stainless Steel' },
+            { value: 'steelwork', label: 'As Steelwork' }
+          ]}
+        />
         <Check checked={input.screens} onChange={(v) => set('screens', v)}>
-          Mesh Screens
+          Screens
         </Check>
         {input.screens && (
           <div className="nested">
+            <SelectField
+              label="Screen Type"
+              value={input.screenType}
+              onChange={(v) => {
+                const t = v as ScreenType;
+                set('screenType', t);
+                set('screenSolidity', SCREEN_INFO[t].solidity);
+                set('screenLoad', SCREEN_INFO[t].load);
+              }}
+              options={(Object.keys(SCREEN_INFO) as ScreenType[]).map((k) => ({ value: k, label: SCREEN_INFO[k].label }))}
+            />
             <div className="grid grid-cols-2 gap-2">
               <NumberField label="Height Above Deck (m)" value={input.screenHeight} onChange={(v) => set('screenHeight', v)} min={0.5} max={4} step={0.1} decimals={2} />
               <NumberField label="Weight (kPa)" value={input.screenLoad} onChange={(v) => set('screenLoad', v)} min={0} max={2} step={0.05} decimals={2} />
             </div>
-            <NumberField label="Solidity (%)" value={Math.round(input.screenSolidity * 100)} onChange={(v) => set('screenSolidity', v / 100)} min={0} max={100} step={5} title="Solid area of the mesh as a share of its area (for wind)" />
+            <NumberField label="Solidity (%)" value={Math.round(input.screenSolidity * 100)} onChange={(v) => set('screenSolidity', v / 100)} min={0} max={100} step={5} title="Solid area of the screen as a share of its area (for wind): typically 40% for wire mesh, 60% for perforated plate, 100% for a solid panel" />
           </div>
         )}
         <SelectField label="Steel Finish" value={input.finish} onChange={(v) => set('finish', v as Finish)} options={(Object.keys(FINISH) as Finish[]).map((k) => ({ value: k, label: FINISH[k].label }))} />
@@ -256,7 +280,7 @@ export const InputPanels: React.FC<{
           type="button"
           className="btn w-full"
           onClick={onOptimise}
-          disabled={solving || model.errors.length > 0}
+          disabled={solving}
           title="Keeps the geometry, loads, section types and grades, and selects for each group the most compact section for its mass (or the lightest) with a utilisation of at most the target, keeping the web members proportionate to the chords, with the chords stiff enough for the deflection and vertical vibration checks and the stringers for their deflection check, in up to four analysis iterations (and up to two more, upsizing only, if a check still fails), with the verticals and diagonals no wider than the chords. Groups sized by deflection or vibration are then refined with full analyses. The model is then solved."
         >
           <Wand2 className="w-3.5 h-3.5" />
@@ -269,13 +293,22 @@ export const InputPanels: React.FC<{
               value={`${optimiseLog.log.filter((l) => l.includes('→')).length} changes`}
               title={optimiseLog.log.join('\n')}
             />
-            <p className="text-[11px] text-slate-500 leading-snug">
-              Sizes set by:{' '}
-              {GROUPS.filter((g) => optimiseLog.governs[g])
-                .map((g) => `${GROUP_INFO[g].label} ${optimiseLog.governs[g]}`)
-                .join('; ')}
-              .
-            </p>
+            {optimiseLog.log
+              .filter((l) => l.startsWith('Before optimising') || l.startsWith('Not optimised'))
+              .map((l) => (
+                <p key={l} className={`text-[11px] leading-snug ${l.startsWith('Not') ? 'text-amber-800' : 'text-slate-500'}`}>
+                  {l}
+                </p>
+              ))}
+            {Object.keys(optimiseLog.governs).length > 0 && (
+              <p className="text-[11px] text-slate-500 leading-snug">
+                Sizes set by:{' '}
+                {GROUPS.filter((g) => optimiseLog.governs[g])
+                  .map((g) => `${GROUP_INFO[g].label} ${optimiseLog.governs[g]}`)
+                  .join('; ')}
+                .
+              </p>
+            )}
           </>
         )}
       </section>
@@ -353,16 +386,6 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
           ]}
         />
       </div>
-      {group === 'diagonal' && input.trussType !== 'warren' && (
-        <Check checked={input.webPinned} onChange={(v) => set('webPinned', v)} title="Diagonals with bending released at both ends. Verticals stay moment connected (U-frames).">
-          Pinned Ends
-        </Check>
-      )}
-      {group === 'bracing' && (
-        <Check checked={input.bracingPinned} onChange={(v) => set('bracingPinned', v)} title="Plan bracing with bending released at both ends">
-          Pinned Ends
-        </Check>
-      )}
     </div>
   );
 };

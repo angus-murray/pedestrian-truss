@@ -74,17 +74,41 @@ function torso(g: THREE.Group, hip: THREE.Vector3, neck: THREE.Vector3, k: numbe
   g.add(holder);
 }
 
-function head(g: THREE.Group, at: THREE.Vector3, k: number, skin: THREE.Material, hair: THREE.Material, helmet?: THREE.Material) {
-  const h = new THREE.Mesh(new THREE.SphereGeometry(0.1 * k, 20, 14), skin);
-  h.scale.set(1.0, 0.85, 1.18);
+/** Head proportions: forward (x), across (y), up (z). */
+const HEAD_SCALE = V(1.0, 0.85, 1.18);
+
+/**
+ * A shell over the head: a spherical cap whose pole is tilted back by `tilt`, so it covers the crown and the back
+ * of the head more than the forehead, scaled to the head's proportions.
+ */
+function shell(g: THREE.Group, at: THREE.Vector3, r: number, cover: number, tilt: number, mat: THREE.Material) {
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 14, 0, Math.PI * 2, 0, Math.PI * cover), mat);
+  cap.quaternion.setFromUnitVectors(V(0, 1, 0), V(-Math.sin(tilt), 0, Math.cos(tilt)));
+  const holder = new THREE.Group();
+  holder.add(cap);
+  holder.scale.copy(HEAD_SCALE);
+  holder.position.copy(at);
+  g.add(holder);
+}
+
+function head(g: THREE.Group, at: THREE.Vector3, k: number, skin: THREE.Material, hair: THREE.Material, opts: { helmet?: THREE.Material; long?: boolean } = {}) {
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.1 * k, 24, 16), skin);
+  h.scale.copy(HEAD_SCALE);
   h.position.copy(at);
   g.add(h);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.106 * k, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), helmet ?? hair);
-  cap.rotation.x = Math.PI / 2;
-  cap.rotation.z = -0.35;
-  cap.scale.set(helmet ? 1.15 : 1, helmet ? 1.15 : 1, helmet ? 1.12 : 1.02);
-  cap.position.copy(at).add(V(-0.012 * k, 0, 0.012 * k));
-  g.add(cap);
+  if (opts.helmet) {
+    shell(g, at.clone().add(V(-0.004 * k, 0, 0.012 * k)), 0.116 * k, 0.5, 0.25, opts.helmet);
+    return;
+  }
+  // close-fitting hair over the crown and the back of the head, clear of the face
+  shell(g, at.clone().add(V(-0.006 * k, 0, 0.006 * k)), 0.104 * k, 0.6, 0.55, hair);
+  if (opts.long) {
+    // longer hair falling behind the head to the shoulders
+    const fall = new THREE.Mesh(new THREE.SphereGeometry(0.1 * k, 20, 14), hair);
+    fall.scale.set(0.5, 0.82, 1.25);
+    fall.position.copy(at).add(V(-0.055 * k, 0, -0.07 * k));
+    g.add(fall);
+  }
 }
 
 function shoe(g: THREE.Group, ankle: THREE.Vector3, k: number, mat: THREE.Material, pitch = 0) {
@@ -128,7 +152,7 @@ function walker(r: () => number): THREE.Group {
   const neck = pelvis.clone().add(V(0.02 * h, 0, 0.3 * h));
   torso(g, pelvis.clone().add(V(0, 0, -0.03 * h)), neck, k, top, female);
   segment(g, neck, neck.clone().add(V(0.005, 0, 0.05 * k)), 0.045 * k, 0.042 * k, skin);
-  head(g, neck.clone().add(V(0.012 * k, 0, 0.14 * k)), k, skin, hair);
+  head(g, neck.clone().add(V(0.012 * k, 0, 0.14 * k)), k, skin, hair, { long: female && r() > 0.35 });
   // arms swinging opposite to the legs, elbows slightly bent
   for (const sy of [-1, 1]) {
     const sh = neck.clone().add(V(-0.01 * k, sy * 0.19 * k, -0.04 * k));
@@ -241,7 +265,7 @@ function cyclist(r: () => number): THREE.Group {
   }
   const neck = shoulderC.clone().add(V(0.04, 0, 0.07));
   segment(g, neck, neck.clone().add(V(0.04, 0, 0.05)), 0.045, 0.042, skin);
-  head(g, neck.clone().add(V(0.09, 0, 0.13)), k, skin, hair, helmet);
+  head(g, neck.clone().add(V(0.09, 0, 0.13)), k, skin, hair, { helmet });
   g.traverse((o) => (o.castShadow = true));
   return g;
 }

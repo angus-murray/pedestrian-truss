@@ -13,7 +13,7 @@
 import { sectionProps } from '../design/section';
 import { sectionsOf } from '../data/sections';
 import { designMember, runAnalysis } from './analysis';
-import { cgLevelError, effectiveSections, stringerFitError, transverseWidth } from './build';
+import { buildModel, cgLevelError, effectiveSections, stringerFitError, transverseWidth } from './build';
 
 const isChord = (g: GroupKey) => g === 'topChord' || g === 'bottomChord';
 const isWeb = (g: GroupKey) => g === 'vertical' || g === 'diagonal';
@@ -66,9 +66,54 @@ export interface OptimiseResult {
   governs: Partial<Record<GroupKey, string>>;
 }
 
-export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, progress: (msg: string) => void = () => {}): OptimiseResult {
+/**
+ * Section changes that clear the warnings which stop the analysis and depend on the sections (web members wider
+ * than the chords, cross girders deeper than the bottom chord or wider than the verticals, stringers off the cross
+ * girders): one group at a time, the section of the same type nearest in mass that leaves fewer warnings.
+ */
+function repairSections(input: BridgeInput, log: string[]): BridgeInput {
   let cur = input;
+  let errs = buildModel(cur).errors;
+  const order: GroupKey[] = ['crossGirder', 'vertical', 'diagonal', 'bottomChord', 'topChord', 'stringer'];
+  for (let pass = 0; pass < 8 && errs.length; pass++) {
+    let improved = false;
+    for (const g of order) {
+      if (!errs.length) break;
+      const spec = cur.sections[g];
+      const m0 = sectionProps(spec).mass;
+      const cands = sectionsOf(spec.category)
+        .filter((c) => c.name !== spec.name)
+        .sort((a, b) => Math.abs(sectionProps({ ...spec, name: a.name }).mass - m0) - Math.abs(sectionProps({ ...spec, name: b.name }).mass - m0));
+      for (const c of cands) {
+        const trial = { ...cur, sections: { ...cur.sections, [g]: { ...spec, name: c.name } } };
+        const e = buildModel(trial).errors;
+        if (e.length < errs.length) {
+          log.push(`Before optimising: ${groupLabel(g)} ${spec.name} → ${c.name}, to clear a warning.`);
+          cur = trial;
+          errs = e;
+          improved = true;
+          break;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  return cur;
+}
+
+export function optimiseSections(input: BridgeInput, target = 0.9, maxIter = 4, progress: (msg: string) => void = () => {}): OptimiseResult {
   const log: string[] = [];
+  // warnings that stop the analysis: cleared by section changes where they depend on the sections
+  let cur = input;
+  if (buildModel(cur).errors.length) {
+    progress('Clearing the warnings that depend on the sections');
+    cur = repairSections(cur, log);
+    const left = buildModel(cur).errors;
+    if (left.length) {
+      log.push(`Not optimised: these warnings do not depend on the sections and must be resolved first: ${left.join(' ')}`);
+      return { sections: cur.sections, iterations: 0, log, governs: {} };
+    }
+  }
   const governs: Partial<Record<GroupKey, string>> = {};
   // sections used by each group in earlier iterations, and groups held after they started to alternate
   const history: Partial<Record<GroupKey, string[]>> = {};

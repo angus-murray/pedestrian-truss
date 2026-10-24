@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BridgeModel } from '../../model/build';
 import type { Finish } from '../../model/types';
-import { boxBetween, chequerTexture, chordExtents, extrudeSection, gratingTexture, memberCuts, meshTexture, rod, speckleTexture, timberTexture, webHalfWidth } from './geometry';
+import { boxBetween, chequerTexture, chordExtents, extrudeSection, gratingTexture, memberCuts, meshTexture, perforatedTexture, rod, speckleTexture, timberTexture, webHalfWidth } from './geometry';
 import { roundedRect } from '../../design/section';
 
 export const FINISH: Record<Finish, { colour: string; metalness: number; roughness: number; label: string }> = {
@@ -164,6 +164,12 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
 
   // ------------------------------------------------------------ handrails on brackets from the web members
   const rail = 0.0483 / 2;
+  const railMat =
+    input.railFinish === 'stainless'
+      ? keep(new THREE.MeshStandardMaterial({ color: '#e4e7ea', metalness: 0.95, roughness: 0.16 }))
+      : input.railFinish === 'galvanised'
+        ? keep(new THREE.MeshStandardMaterial({ color: '#b9bec2', metalness: 0.7, roughness: 0.42 }))
+        : steel;
   const yFaceAbs = geo.s / 2 - webHalfWidth(model);
   const webs = model.members.filter((m) => m.group === 'vertical' || m.group === 'endPost' || (!geo.verticals && m.group === 'diagonal'));
   for (const h of geo.handrailHeights) {
@@ -175,17 +181,23 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
         .filter((m) => Math.sign(m.a[1]) === sg && (m.a[2] - zr) * (m.b[2] - zr) <= 0 && m.a[2] !== m.b[2])
         .map((m) => m.a[0] + ((zr - m.a[2]) / (m.b[2] - m.a[2])) * (m.b[0] - m.a[0]))
         .sort((p, q) => p - q);
-      add(furniture, rod([0, y, zr], [geo.L, y, zr], rail), steel);
+      add(furniture, rod([0, y, zr], [geo.L, y, zr], rail), railMat);
       for (const x of xs) {
         const yFace = sg * yFaceAbs;
-        add(furniture, boxBetween(x - 0.005, x + 0.005, Math.min(yFace, y), Math.max(yFace, y), zr - rail - 0.05, zr - rail), steel);
+        add(furniture, boxBetween(x - 0.005, x + 0.005, Math.min(yFace, y), Math.max(yFace, y), zr - rail - 0.05, zr - rail), railMat);
       }
     }
   }
 
   // ------------------------------------------------------------ screens on the inside of the trusses, behind the handrails
   if (input.screens) {
-    const meshMat = keep(new THREE.MeshStandardMaterial({ map: keep(meshTexture('#2f3438')), transparent: true, depthWrite: false, side: THREE.DoubleSide, metalness: 0.4, roughness: 0.6 }));
+    // wire mesh (see-through grid), perforated plate (round holes, cut out by alpha test) or solid panel
+    const meshMat =
+      input.screenType === 'solid'
+        ? keep(new THREE.MeshStandardMaterial({ color: '#5d656c', side: THREE.DoubleSide, metalness: 0.45, roughness: 0.5 }))
+        : input.screenType === 'perforated'
+          ? keep(new THREE.MeshStandardMaterial({ map: keep(perforatedTexture('#6b737a')), alphaTest: 0.5, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.45 }))
+          : keep(new THREE.MeshStandardMaterial({ map: keep(meshTexture('#2f3438')), transparent: true, depthWrite: false, side: THREE.DoubleSide, metalness: 0.4, roughness: 0.6 }));
     const frameMat = darkSteel;
     const zb = geo.deckTop + 0.1, zt = geo.deckTop + input.screenHeight;
     const tcSoffit = geo.H - geo.dTC / 2;
@@ -202,7 +214,7 @@ export function buildBridge(model: BridgeModel): BridgeObjects {
         plane.translate((xa + xb) / 2, yScr, (zb + zt) / 2);
         const uv = plane.attributes.uv as THREE.BufferAttribute;
         for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / 0.2), uv.getY(i) * (h / 0.2));
-        add(furniture, plane, meshMat, false);
+        add(furniture, plane, meshMat, input.screenType === 'solid');
         // panel frame (flat bars)
         add(furniture, boxBetween(xa, xb, yScr - 0.003, yScr + 0.003, zt - 0.04, zt), frameMat);
         add(furniture, boxBetween(xa, xb, yScr - 0.003, yScr + 0.003, zb, zb + 0.04), frameMat);

@@ -360,8 +360,6 @@ export function buildModel(input: BridgeInput): BridgeModel {
   });
 
   const hrFrac = (deckTop + hrTop) / H;
-  // pinned diagonals (Pratt and Howe): in a Warren truss the diagonals form the U-frames and stay moment connected
-  const webRel = input.webPinned && verticals;
   sides.forEach(([side, ], si) => {
     // chords
     for (let k = 0; k < n; k++) addMember(`BC${k + 1}${side}`, 'bottomChord', side, k + 1, bot[si][k], bot[si][k + 1], chordDir(!bcVert));
@@ -380,7 +378,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
         const left = k < n / 2;
         if (input.trussType === 'pratt') [na, nb] = left ? [T(k), bot[si][k + 1]] : [bot[si][k], T(k + 1)];
         else [na, nb] = left ? [bot[si][k], T(k + 1)] : [T(k), bot[si][k + 1]];
-        addMember(`D${k + 1}${side}`, 'diagonal', side, k + 1, na, nb, webDir(secs.diagonal.rotate, P(na), P(nb)), { relA: webRel, relB: webRel });
+        addMember(`D${k + 1}${side}`, 'diagonal', side, k + 1, na, nb, webDir(secs.diagonal.rotate, P(na), P(nb)), {});
       }
     } else {
       // Warren: no verticals; raking end posts and diagonals to the mid-panel top chord nodes
@@ -388,8 +386,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
         const up = [bot[si][k], top[si][k]], down = [top[si][k], bot[si][k + 1]];
         const g1: GroupKey = k === 0 ? 'endPost' : 'diagonal';
         const g2: GroupKey = k === n - 1 ? 'endPost' : 'diagonal';
-        addMember(k === 0 ? `EPL${side}` : `D${2 * k + 1}${side}`, g1, side, k + 1, up[0], up[1], webDir(secs[g1].rotate, P(up[0]), P(up[1])), { relA: webRel && g1 === 'diagonal', relB: webRel && g1 === 'diagonal', extra: [hrFrac] });
-        addMember(k === n - 1 ? `EPR${side}` : `D${2 * k + 2}${side}`, g2, side, k + 1, down[0], down[1], webDir(secs[g2].rotate, P(down[0]), P(down[1])), { relA: webRel && g2 === 'diagonal', relB: webRel && g2 === 'diagonal', extra: [1 - hrFrac] });
+        addMember(k === 0 ? `EPL${side}` : `D${2 * k + 1}${side}`, g1, side, k + 1, up[0], up[1], webDir(secs[g1].rotate, P(up[0]), P(up[1])), { extra: [hrFrac] });
+        addMember(k === n - 1 ? `EPR${side}` : `D${2 * k + 2}${side}`, g2, side, k + 1, down[0], down[1], webDir(secs[g2].rotate, P(down[0]), P(down[1])), { extra: [1 - hrFrac] });
       }
     }
   });
@@ -416,7 +414,7 @@ export function buildModel(input: BridgeInput): BridgeModel {
       stringerYs.forEach((_, i) => addMember(`ST${k + 1}-${i + 1}`, 'stringer', null, k + 1, seat[i][k], seat[i][k + 1], secs.stringer.rotate ? Yd : Z, { relA: true, relB: true, axialB: true }));
   }
   const brDir: Vec3 = secs.bracing.rotate ? Yd : Z;
-  const pr = input.bracingPinned;
+  const pr = true; // plan bracing: always pinned (bending released at both ends)
   for (let k = 0; k < n; k++) {
     if (input.bracing === 'x') {
       addMember(`PB${k + 1}a`, 'bracing', null, k + 1, cgEnd[0][k], cgEnd[1][k + 1], brDir, { relA: pr, relB: pr });

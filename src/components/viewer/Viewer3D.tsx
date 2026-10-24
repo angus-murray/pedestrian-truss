@@ -483,7 +483,7 @@ export const Viewer3D: React.FC<{
       // drag to look around
       const p = lastPtr.current;
       if (p) {
-        t.fpv.yaw -= (e.clientX - p.x) * 0.004;
+        t.fpv.yaw += (e.clientX - p.x) * 0.004;
         t.fpv.pitch = Math.max(-1.3, Math.min(1.3, t.fpv.pitch + (e.clientY - p.y) * 0.004));
       }
       lastPtr.current = { x: e.clientX, y: e.clientY };

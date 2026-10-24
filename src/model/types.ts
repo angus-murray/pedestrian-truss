@@ -6,6 +6,15 @@ export type DeckType = 'concrete' | 'precast' | 'frp' | 'timber' | 'steel';
 export type GroupKey = 'topChord' | 'bottomChord' | 'endPost' | 'vertical' | 'diagonal' | 'crossGirder' | 'stringer' | 'bracing';
 export type LeMethod = 'buckling' | 'factor' | 'uframe';
 export type Finish = 'galvanised' | 'grey' | 'green' | 'charcoal';
+export type RailFinish = 'steelwork' | 'galvanised' | 'stainless';
+export type ScreenType = 'wire' | 'perforated' | 'solid';
+
+/** Screen types, with typical solidity (wind) and weight. */
+export const SCREEN_INFO: Record<ScreenType, { label: string; solidity: number; load: number }> = {
+  wire: { label: 'Wire Mesh', solidity: 0.4, load: 0.15 },
+  perforated: { label: 'Perforated Plate', solidity: 0.6, load: 0.15 },
+  solid: { label: 'Solid Panel', solidity: 1.0, load: 0.25 }
+};
 /** Welded joints at the ends of the web members and cross girders: rigid, or semi-rigid (rotational springs). */
 export type JointModel = 'rigid' | 'as5100' | 'flex' | 'ec3';
 /** Connection types of AS 5100.6 Cl. 5.6.3 for the joint flexibility f. */
@@ -62,8 +71,6 @@ export interface BridgeInput {
   handrailWidth: number; // mm, handrail offset: inside face of truss to inside face of handrail
   cgLevel: number; // mm, top of cross girder above (+) or below (−) top of bottom chord
   bracing: BracingType;
-  webPinned: boolean;
-  bracingPinned: boolean;
   // deck and furniture
   deckType: DeckType;
   deckThickness: number; // mm
@@ -72,6 +79,7 @@ export interface BridgeInput {
   chordsSupportDeck: boolean; // with stringers: the bottom chords also support the deck
   stringerSpacing: number; // m
   screens: boolean;
+  screenType: ScreenType;
   screenHeight: number; // m above deck
   screenLoad: number; // kPa
   screenSolidity: number; // 0–1
@@ -81,6 +89,7 @@ export interface BridgeInput {
   handrailLoad: number; // kN/m per rail per side
   services: number; // kN/m total
   finish: Finish;
+  railFinish: RailFinish;
   // sections
   sections: Record<GroupKey, GroupSection>;
   // loads
@@ -181,8 +190,6 @@ export const DEFAULT_INPUT: BridgeInput = {
   handrailWidth: 100,
   cgLevel: 0,
   bracing: 'x',
-  webPinned: false,
-  bracingPinned: true,
   deckType: 'concrete',
   deckThickness: 150,
   deckDensity: 25,
@@ -190,6 +197,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   chordsSupportDeck: true,
   stringerSpacing: 0.9,
   screens: true,
+  screenType: 'wire',
   screenHeight: 1.2,
   screenLoad: 0.15,
   screenSolidity: 0.4,
@@ -199,6 +207,7 @@ export const DEFAULT_INPUT: BridgeInput = {
   handrailLoad: 0.1,
   services: 0.5,
   finish: 'galvanised',
+  railFinish: 'galvanised',
   sections: {
     topChord: sec('SHS', '250×250×9.0 SHS', 'Grade C450L0'),
     bottomChord: sec('SHS', '250×250×9.0 SHS', 'Grade C450L0'),

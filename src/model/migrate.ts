@@ -7,7 +7,7 @@
 import { DEFAULT_INPUT, SUPERSEDED_COMBOS, type BridgeInput, type Combination } from './types';
 
 /** Version of the saved input format. 1: files without a version (before migrations were recorded). */
-export const FILE_VERSION = 3;
+export const FILE_VERSION = 4;
 
 export interface LoadedInput {
   input: BridgeInput;
@@ -50,6 +50,13 @@ export function loadInput(raw: Partial<BridgeInput> & { fileVersion?: number }):
     notes.push(`The panel length target of ${legacy.panelTarget} m was replaced by the number of panels it gave (${x.panels}).`);
   }
   delete (x as { panelTarget?: number }).panelTarget;
+
+  // version 3 → 4: no pinned-end options; the truss members follow the joint model and the plan bracing is pinned
+  const pins = raw as { webPinned?: boolean; bracingPinned?: boolean };
+  if (pins.webPinned) notes.push('Pinned diagonal ends are no longer an option: the diagonals are connected as set under Web and Cross Girder Joints.');
+  if (pins.bracingPinned === false) notes.push('Plan bracing is now always pinned at its ends (it was moment connected in the saved inputs).');
+  delete (x as { webPinned?: boolean }).webPinned;
+  delete (x as { bracingPinned?: boolean }).bracingPinned;
 
   // inputs added since the file was saved take their defaults
   for (const k of Object.keys(DEFAULT_INPUT) as (keyof BridgeInput)[])

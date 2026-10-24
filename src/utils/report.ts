@@ -323,7 +323,8 @@ export async function generateReport(d: ReportData, info: ReportInfo): Promise<v
     ['Handrails', geo.handrailHeights.map((h) => `${f2(h)} m`).join(' and ') + ' above deck'],
     ['Stringers', geo.stringerYs.length ? `${geo.stringerYs.length} at ${f2(input.stringerSpacing)} m` : 'None'],
     ['Deck supported on', geo.stringerYs.length ? (input.chordsSupportDeck ? 'Bottom chords and stringers' : 'Stringers') : 'Bottom chords'],
-    ['Diagonal ends', input.webPinned ? 'Pinned' : 'Rigid']
+    ['Truss member joints', input.jointModel === 'rigid' ? 'Rigid' : input.jointModel === 'ec3' ? 'Semi-rigid (EN 1993-1-8 rigid limit)' : `Semi-rigid (f = ${jointFlex(input)} mrad/kNm)`],
+    ['Plan bracing ends', 'Pinned']
   ]);
 
   subheading('Sections');
