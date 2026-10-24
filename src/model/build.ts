@@ -584,6 +584,8 @@ export function buildModel(input: BridgeInput): BridgeModel {
   if (fit) errors.push(fit);
   const cgErr = cgLevelError(input);
   if (cgErr) errors.push(cgErr);
+  if (input.sections.bracing.category === 'ROD' && input.bracing === 'single')
+    errors.push('Rod plan bracing acts in tension only and needs X-bracing: use X-bracing, or a hollow section for single diagonals.');
   const webWide = webWidthWarning(input);
   if (webWide) errors.push(webWide);
   const ang = (Math.atan2(H, verticals ? a : a / 2) * 180) / Math.PI;

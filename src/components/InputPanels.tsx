@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { NumberField, SelectField, Check, Segmented, Modal } from 'engineering-ui';
 import { ChevronDown, ChevronUp, Plus, Trash2, Wand2 } from 'lucide-react';
-import { CATEGORIES, sectionsOf, type SectionCategory } from '../data/sections';
+import { categoriesFor, sectionsOf, type SectionCategory } from '../data/sections';
 import { defaultGrade, gradesFor } from '../data/grades';
 import { sectionProps } from '../design/section';
 import {
@@ -352,10 +352,12 @@ const SectionRow: React.FC<{ group: GroupKey; input: BridgeInput; set: Set; firs
           onChange={(v) => {
             const c = v as SectionCategory;
             const opts = sectionsOf(c);
-            const near = opts.reduce((a, s) => (Math.abs(s.depth - sp.d) < Math.abs(a.depth - sp.d) ? s : a), opts[0]);
+            // nearest depth, or nearest mass to or from solid rods
+            const by = (s: (typeof opts)[number]) => (c === 'ROD' || g.category === 'ROD' ? Math.abs(s.massPerMetre - sp.mass) : Math.abs(s.depth - sp.d));
+            const near = opts.reduce((a, s) => (by(s) < by(a) ? s : a), opts[0]);
             update({ category: c, name: near.name, grade: defaultGrade(c) });
           }}
-          options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+          options={categoriesFor(group).map((c) => ({ value: c, label: c === 'ROD' ? 'Rod' : c }))}
         />
         <div className="relative">
           <select className="control !pr-11" value={g.name} onChange={(e) => update({ name: e.target.value })}>

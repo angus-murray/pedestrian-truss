@@ -228,3 +228,19 @@ test('cross girder level: limits, and raised cross girders connected to the vert
   const wide = { ...DEFAULT_INPUT, cgLevel: 100, sections: { ...DEFAULT_INPUT.sections, crossGirder: { ...DEFAULT_INPUT.sections.crossGirder, name: '250×250×9.0 SHS' } } };
   assert.match(cgLevelError(wide) ?? '', /wider than the verticals/);
 });
+
+test('rod plan bracing: tension only, threaded ends, X-bracing only', async () => {
+  const { buildModel } = await import('../src/model/build');
+  const rod = { category: 'ROD' as const, name: '24 mm Rod', grade: 'Grade 300', rotate: false };
+  const inp = { ...DEFAULT_INPUT, sections: { ...DEFAULT_INPUT.sections, bracing: rod } };
+  const r = runAnalysis(inp);
+  assert.equal(r.results.errors.length, 0);
+  for (const d of r.results.design.filter((x) => r.model.members[x.member].group === 'bracing')) {
+    assert.ok(d.N >= 0, 'no compression in a rod');
+    assert.ok(!d.items.some((i) => i.key === 'Nc' || i.key === 'Ns'));
+    // φN_t = 0.9 min(A_g f_y, 0.85 × 0.78 A_g f_u)
+    const sp = r.model.members[d.member].sp;
+    assert.ok(Math.abs(d.phiNt - (0.9 * Math.min(sp.A * sp.fy, 0.85 * 0.78 * sp.A * sp.fu)) / 1000) < 1e-9);
+  }
+  assert.ok(buildModel({ ...inp, bracing: 'single' }).errors.some((e) => e.includes('X-bracing')));
+});

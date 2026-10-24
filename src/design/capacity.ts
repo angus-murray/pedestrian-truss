@@ -69,14 +69,22 @@ export function majorBending(sp: SectionProps, le: number, am: number): BendingC
   const Ms = sp.fy * sp.Zex; // Nmm
   const phiMs = (PHI * Ms) / 1e6;
   // no lateral–torsional buckling for circular or square hollow sections, or minor-axis bending
-  if (sp.kind === 'CHS' || (sp.kind === 'RHS' && sp.d <= sp.b)) return { phiMs, phiMb: phiMs, Mo: Infinity, alphaS: 1, alphaM: am, le };
+  if (sp.kind === 'CHS' || sp.kind === 'ROD' || (sp.kind === 'RHS' && sp.d <= sp.b)) return { phiMs, phiMb: phiMs, Mo: Infinity, alphaS: 1, alphaM: am, le };
   const L = le * 1000;
   const Mo = Math.sqrt(((Math.PI ** 2 * E_STEEL * sp.Iy) / (L * L)) * (G_STEEL * sp.J + (Math.PI ** 2 * E_STEEL * sp.Iw) / (L * L)));
   const alphaS = Math.min(1, 0.6 * (Math.sqrt((Ms / Mo) ** 2 + 3) - Ms / Mo));
   return { phiMs, phiMb: Math.min(phiMs, am * alphaS * phiMs), Mo: Mo / 1e6, alphaS, alphaM: am, le };
 }
 
-/** Design tension capacity φN_t (kN), gross area (no holes; welded connections) with k_t = 1 (Cl. 7.2). */
+/**
+ * Design tension capacity φN_t (kN) with k_t = 1 (Cl. 7.2): gross area for the welded members (no holes); for a rod,
+ * threaded at its ends, the net area is the tensile stress area of the thread, taken as 0.78 A_g (ISO metric coarse
+ * threads, about 0.75 to 0.80 A_g).
+ */
 export function tensionCapacity(sp: SectionProps): number {
-  return (PHI * Math.min(sp.A * sp.fy, 0.85 * sp.A * sp.fu)) / 1000;
+  const An = sp.kind === 'ROD' ? ROD_THREAD_AREA * sp.A : sp.A;
+  return (PHI * Math.min(sp.A * sp.fy, 0.85 * An * sp.fu)) / 1000;
 }
+
+/** Tensile stress area of a threaded rod as a share of its gross area. */
+export const ROD_THREAD_AREA = 0.78;

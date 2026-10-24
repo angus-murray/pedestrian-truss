@@ -304,7 +304,8 @@ export function runAnalysis(input: BridgeInput, progress: (msg: string) => void 
     if (c.type !== 'ULS') return;
     progress(`Buckling analysis: ${comboLabel(c)}`);
     // rigid links (offsets to the cross girders and stringer seats) are modelling devices: no geometric stiffness
-    const Nb = axial[ci].map((v, e) => (model.elMember[e] < 0 ? 0 : v));
+    // and tension-only rods carry no compression: a rod in compression is slack
+    const Nb = axial[ci].map((v, e) => (model.elMember[e] < 0 || (v < 0 && model.members[model.elMember[e]].sp.kind === 'ROD') ? 0 : v));
     const B = solver.negGeometric(Nb);
     const r = lanczos(solver.K, Kmul, (x, y) => void B.multiply(x, y), nModes, { start });
     start = r.vectors[0];
@@ -597,6 +598,10 @@ export function designMember(
   let best: MemberDesign | null = null;
   const byCombo: number[] = [];
   let utilRaw = 0;
+  // rods: tension-only X-bracing. A rod in compression goes slack, and the other rod of its X takes that force in
+  // addition to its own: N* = N − min(0, N_other), and no compression in a rod
+  const rod = sp.kind === 'ROD';
+  const other = rod ? model.members.find((x) => x.group === m.group && x.panel === m.panel && x.id !== m.id) : undefined;
   combos.forEach((c, ci) => {
     if (c.type !== 'ULS') return;
     const sf = forces[ci][m.id];
@@ -609,6 +614,15 @@ export function designMember(
       Vy = Math.max(Vy, Math.abs(sf[s * 6 + 2]));
       Mx = Math.max(Mx, Math.abs(sf[s * 6 + 4]));
       My = Math.max(My, Math.abs(sf[s * 6 + 5]));
+    }
+    if (rod) {
+      let Nother = 0;
+      if (other) {
+        const so = forces[ci][other.id];
+        for (let s = 0; s < so.length; s += 6) Nother = Math.min(Nother, so[s]);
+      }
+      Nmax = Math.max(0, Nmax - Nother);
+      Nmin = 0;
     }
     const compression = -Nmin > Nmax && -Nmin > 1e-3; // no axial force: checked as in tension (no amplification)
     const N = compression ? Nmin : Nmax;
@@ -703,7 +717,7 @@ export function designMember(
     const items: CheckItem[] = [];
     const add = (key: string, label: string, clause: string, action: number, capacity: number, unit: CheckItem['unit']) =>
       items.push({ key, label, clause, action, capacity, unit, util: capacity > 0 ? Math.min(9.99, action / capacity) : action > 1e-9 ? 9.99 : 0 });
-    if (!compression) add('Nt', 'Axial Tension', 'Cl. 7.2', Nabs, phiNt, 'kN');
+    if (!compression) add('Nt', rod ? 'Axial Tension (Tension-Only Rod)' : 'Axial Tension', 'Cl. 7.2', Nabs, phiNt, 'kN');
     else {
       add('Ns', 'Section Compression', 'Cl. 6.2', Nabs, phiNs, 'kN');
       if (comp) add('Nc', 'Member Compression', 'Cl. 6.3.3', Nabs, comp.phiNc, 'kN');

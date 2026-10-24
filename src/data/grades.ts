@@ -17,6 +17,9 @@ const steps = (table: [number, number][], last: number) => (t: number) => {
   return last;
 };
 
+/** Round bar (rods): AS/NZS 3679.1 Grades 250, 300 and 350, the diameter as the thickness. */
+const GRADE_250: SteelGrade = { name: 'Grade 250', standard: 'AS/NZS 3679.1', fu: 410, fy: steps([[11, 260], [40, 250]], 230) };
+
 export const HOT_ROLLED_GRADES: SteelGrade[] = [
   { name: 'Grade 300', standard: 'AS/NZS 3679.1', fu: 440, fy: steps([[11, 320], [17, 300]], 280) },
   { name: 'Grade 350', standard: 'AS/NZS 3679.1', fu: 480, fy: steps([[11, 360], [40, 340]], 330) }
@@ -26,7 +29,10 @@ const C = (g: number, fu: number): SteelGrade => ({ name: `Grade C${g}L0`, stand
 export const RHS_GRADES: SteelGrade[] = [C(250, 320), C(350, 430), C(450, 500)];
 export const CHS_GRADES: SteelGrade[] = [C(250, 320), C(350, 430)];
 
+export const ROD_GRADES: SteelGrade[] = [GRADE_250, ...HOT_ROLLED_GRADES];
+
 export function gradesFor(category: SectionCategory): SteelGrade[] {
+  if (category === 'ROD') return ROD_GRADES;
   if (category === 'SHS' || category === 'RHS') return RHS_GRADES;
   if (category === 'CHS') return CHS_GRADES;
   return HOT_ROLLED_GRADES;

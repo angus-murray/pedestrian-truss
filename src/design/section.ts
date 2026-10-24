@@ -22,7 +22,7 @@ export type SectionClass = 'compact' | 'non-compact' | 'slender';
 export interface SectionProps {
   spec: SectionSpec;
   def: SectionDefinition;
-  kind: 'I' | 'PFC' | 'RHS' | 'CHS';
+  kind: 'I' | 'PFC' | 'RHS' | 'CHS' | 'ROD';
   d: number; // depth (mm)
   b: number; // width (mm)
   tMax: number; // thickest element (mm)
@@ -247,6 +247,13 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     AwY = d * tw; dpY = d - 2 * tf; twY = tw;
     AwX = 2 * b * tf; twX = tf;
     fyVY = els.web.fy; fyVX = els.flange.fy;
+  } else if (def.category === 'ROD') {
+    // solid round bar: no plate elements (no local buckling)
+    kind = 'ROD';
+    shapes.push({ sign: 1, pts: circle(d / 2, 64) });
+    J = (Math.PI * d ** 4) / 32;
+    alphaB = 0.5;
+    tMax = d;
   } else if (def.category === 'CHS') {
     kind = 'CHS';
     res = 'CF';
@@ -281,7 +288,7 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     Iw = ((tf * bb ** 3 * df ** 2) / 12) * ((3 * bb * tf + 2 * df * tw) / (6 * bb * tf + df * tw));
   }
   // section capacities (N_s, M_s) use the lowest element yield stress; plate slenderness and shear use each element's own
-  const fy = Math.min(...Object.values(els).map((e) => e.fy));
+  const fy = kind === 'ROD' ? grade.fy(d) : Math.min(...Object.values(els).map((e) => e.fy));
   const fu = grade.fu;
 
   // form factor (Cl. 6.2.2, 6.2.4)
@@ -306,11 +313,13 @@ export function sectionProps(spec: SectionSpec): SectionProps {
   } else if (kind === 'RHS') {
     casesX.push([{ e: els.sideX, sup: 'both' }, { e: els.sideY, sup: 'web' }]);
     casesY.push([{ e: els.sideY, sup: 'both' }, { e: els.sideX, sup: 'web' }]);
-  } else {
+  } else if (kind === 'CHS') {
     casesX.push([{ e: els.chs, sup: 'chs' }]);
     casesY.push([{ e: els.chs, sup: 'chs' }]);
   }
-  const worst = (Z: number, S: number, cases: Comp[][]) => cases.map((c) => effectiveModulus(Z, S, c, res)).reduce((a, x) => (x.Ze < a.Ze ? x : a));
+  const worst = (Z: number, S: number, cases: Comp[][]) =>
+    // a solid round bar is compact: Z_e = min(S, 1.5 Z)
+    cases.length ? cases.map((c) => effectiveModulus(Z, S, c, res)).reduce((a, x) => (x.Ze < a.Ze ? x : a)) : { Ze: Math.min(S, 1.5 * Z), cls: 'compact' as const };
   const bx = worst(P.Zx, P.Sx, casesX), by = worst(P.Zy, P.Sy, casesY);
 
   // shear (Cl. 5.11)
@@ -323,7 +332,7 @@ export function sectionProps(spec: SectionSpec): SectionProps {
     return (PHI * Vw) / 1000;
   };
   let phiVy: number, phiVx: number;
-  if (kind === 'CHS') phiVy = phiVx = (PHI * 0.36 * fy * P.A) / 1000;
+  if (kind === 'CHS' || kind === 'ROD') phiVy = phiVx = (PHI * 0.36 * fy * P.A) / 1000;
   else {
     phiVy = shearCap(AwY, dpY, twY, fyVY);
     phiVx = shearCap(AwX, dpX, twX, fyVX);

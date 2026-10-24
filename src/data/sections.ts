@@ -2,8 +2,9 @@
  * Australian structural steel sections (from Baseplate2D).
  *  - Hot-rolled UB, UC, PFC: AS/NZS 3679.1.
  *  - Cold-formed SHS, RHS, CHS: AS/NZS 1163 (corner radii 2.5t outside / 1.5t inside).
+ *  - Hot-rolled round bar (rods, AS/NZS 3679.1): diameters of the ISO metric coarse thread sizes M12 to M64.
  */
-export type SectionCategory = 'UB' | 'UC' | 'PFC' | 'SHS' | 'RHS' | 'CHS';
+export type SectionCategory = 'UB' | 'UC' | 'PFC' | 'SHS' | 'RHS' | 'CHS' | 'ROD';
 
 export interface SectionDefinition {
   name: string;
@@ -158,10 +159,18 @@ const hollow: SectionDefinition[] = [
   )
 ];
 
+/** Round bar diameters (mm): the metric coarse thread sizes, so that the rods can be threaded at the ends. */
+const ROD_RANGE = [12, 16, 20, 24, 27, 30, 33, 36, 39, 42, 45, 48, 52, 56, 60, 64];
+const rods: SectionDefinition[] = ROD_RANGE.map((D) => ({
+  name: `${D} mm Rod`, category: 'ROD', depth: D, flangeWidth: D, flangeThick: D / 2, webThick: D / 2, outerDiameter: D, massPerMetre: kgm((Math.PI * D * D) / 4)
+}));
+
 /** Sections with any element thinner than 3 mm are not offered. */
-export const SECTIONS: SectionDefinition[] = [...hot, ...hollow].filter((s) => Math.min(s.flangeThick, s.webThick, s.wallThick ?? Infinity) >= 3);
+export const SECTIONS: SectionDefinition[] = [...hot, ...hollow, ...rods].filter((s) => Math.min(s.flangeThick, s.webThick, s.wallThick ?? Infinity) >= 3);
 
 export const CATEGORIES: SectionCategory[] = ['SHS', 'RHS', 'CHS', 'UB', 'UC'];
+/** Section types for each member: rods for the plan bracing only. */
+export const categoriesFor = (group: string): SectionCategory[] => (group === 'bracing' ? [...CATEGORIES, 'ROD'] : CATEGORIES);
 
 export const sectionsOf = (c: SectionCategory) => SECTIONS.filter((s) => s.category === c);
 export const findSection = (name: string) => SECTIONS.find((s) => s.name === name);
